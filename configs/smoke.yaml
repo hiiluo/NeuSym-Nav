@@ -1,0 +1,9 @@
+# B3 smoke configuration (Gate G1): 20 deterministic episodes.
+# 10 key_door_goal + 10 goto_type_color across seeds 0-9.
+method: B3
+
+episodes:
+  - family: key_door_goal
+    seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  - family: goto_type_color
+    seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]

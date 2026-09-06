@@ -1,0 +1,15 @@
+# A-04 manifest generation: deterministic probe layouts.
+# Each split takes a disjoint range of the shared combo space, so no
+# layout repeats within or across splits by construction; the generator
+# additionally rejects any collision.
+output_dir: data/manifests
+generator_version: minigrid-core-v1
+public_action_budget: 32
+
+splits:
+  smoke:
+    combo_start: 0
+    combo_count: 10
+  dev:
+    combo_start: 10
+    combo_count: 20

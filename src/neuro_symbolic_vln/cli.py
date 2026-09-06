@@ -7,6 +7,10 @@ from pathlib import Path
 import yaml
 
 from neuro_symbolic_vln.contracts import PlanStatus
+from neuro_symbolic_vln.evaluation.manifests import (
+    generate_manifests,
+    write_manifests,
+)
 from neuro_symbolic_vln.testing import run_b3_episode
 
 
@@ -18,6 +22,9 @@ def build_parser() -> ArgumentParser:
     evaluate = subparsers.add_parser("evaluate")
     evaluate.add_argument("--config", required=True)
     evaluate.add_argument("--method", required=True)
+
+    generate = subparsers.add_parser("generate-manifests")
+    generate.add_argument("--config", required=True)
     return parser
 
 
@@ -29,7 +36,25 @@ def main() -> int:
         return 0
     if args.command == "evaluate":
         return _run_evaluate(args)
+    if args.command == "generate-manifests":
+        return _run_generate_manifests(args)
     parser.print_help()
+    return 0
+
+
+def _run_generate_manifests(args: Namespace) -> int:
+    config_path = Path(args.config)
+    with config_path.open() as handle:
+        config = yaml.safe_load(handle)
+
+    result = generate_manifests(config)
+    written = write_manifests(config["output_dir"], result)
+    print(
+        f"Generated {len(result.public_manifests)} public manifests "
+        f"and {len(result.sidecars)} sidecars"
+    )
+    for name, path in written.items():
+        print(f"  {name}: {path}")
     return 0
 
 
