@@ -26,32 +26,59 @@ SENSOR_MODEL_ID = "local-categorical"
 LocationResolver = Callable[[tuple[int, int]], str]
 
 
-def rotate_local_delta(dx: int, dy: int, heading: str) -> tuple[int, int]:
-    """Rotate a north-up world delta into the egocentric (right, forward) frame.
+# def rotate_local_delta(dx: int, dy: int, heading: str) -> tuple[int, int]:
+#     """Rotate a north-up world delta into the egocentric (right, forward) frame.
 
-    World deltas use x=east, y=south (north is -y), matching MiniGrid axes.
+#     World deltas use x=east, y=south (north is -y), matching MiniGrid axes.
+#     """
+#     transforms = {
+#         "north": (dx, dy),
+#         "east": (-dy, dx),
+#         "south": (-dx, -dy),
+#         "west": (dy, -dx),
+#     }
+#     try:
+#         return transforms[heading]
+#     except KeyError as error:
+#         raise ValueError(f"unsupported heading: {heading}") from error
+
+
+# def egocentric_delta_to_world(dx: int, dy: int, heading: str) -> tuple[int, int]:
+#     """Rotate an egocentric (right, forward) delta into the north-up frame."""
+#     opposite = {
+#         "north": "south",
+#         "south": "north",
+#         "east": "west",
+#         "west": "east",
+#     }
+#     return rotate_local_delta(dx, dy, opposite[heading])
+
+def egocentric_delta_to_world(
+    right: int,
+    forward: int,
+    heading: str,
+) -> tuple[int, int]:
+    """Convert an egocentric (right, forward) delta into World coordinates.
+
+    World frame:
+        +x = east
+        +y = south
+
+    Egocentric frame:
+        +right = right of the agent
+        +forward = forward of the agent
     """
     transforms = {
-        "north": (dx, dy),
-        "east": (-dy, dx),
-        "south": (-dx, -dy),
-        "west": (dy, -dx),
+        "north": (right, -forward),
+        "east": (forward, right),
+        "south": (-right, forward),
+        "west": (-forward, -right)
     }
+
     try:
         return transforms[heading]
     except KeyError as error:
         raise ValueError(f"unsupported heading: {heading}") from error
-
-
-def egocentric_delta_to_world(dx: int, dy: int, heading: str) -> tuple[int, int]:
-    """Rotate an egocentric (right, forward) delta into the north-up frame."""
-    opposite = {
-        "north": "south",
-        "south": "north",
-        "east": "west",
-        "west": "east",
-    }
-    return rotate_local_delta(dx, dy, opposite[heading])
 
 
 def decode_view(
