@@ -1,5 +1,3 @@
-"""Deterministic MiniGrid probe environment for native semantics tests."""
-
 from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
 from minigrid.core.world_object import Door, Key
