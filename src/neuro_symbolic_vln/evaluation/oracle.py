@@ -41,7 +41,12 @@ def shortest_primitive_cost(
     return None
 
 
-def _pose_transitions(x: int, y: int, heading: str, passable: frozenset[tuple[int, int]]) -> tuple[tuple[int, int, str], ...]:
+def _pose_transitions(
+    x: int,
+    y: int,
+    heading: str,
+    passable: frozenset[tuple[int, int]],
+) -> tuple[tuple[int, int, str], ...]:
     dx, dy = _HEADING_DELTA[heading]
     transitions = [(x, y, _LEFT_OF[heading]), (x, y, _RIGHT_OF[heading])]
     if (x + dx, y + dy) in passable:
