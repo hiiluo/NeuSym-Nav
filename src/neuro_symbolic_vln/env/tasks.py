@@ -7,10 +7,23 @@ from minigrid.minigrid_env import MiniGridEnv
 
 
 class LockedDoorProbeEnv(MiniGridEnv):
-    """A key of `key_color` in front of the agent and a locked red door."""
+    """A matching key in front of the agent and a locked red door.
 
-    def __init__(self, key_color: str = "red") -> None:
+    Optionally places a non-red distractor key somewhere off the
+    start-to-door corridor, so the layout stays solvable.
+    """
+
+    def __init__(
+        self,
+        key_color: str = "red",
+        agent_dir: int = 0,
+        distractor_key_color: str | None = None,
+        distractor_key_pos: tuple[int, int] = (1, 3),
+    ) -> None:
         self._key_color = key_color
+        self._agent_dir = agent_dir
+        self._distractor_key_color = distractor_key_color
+        self._distractor_key_pos = distractor_key_pos
         super().__init__(
             mission_space=MissionSpace(mission_func=lambda: "probe"),
             width=6,
@@ -22,18 +35,28 @@ class LockedDoorProbeEnv(MiniGridEnv):
         self.grid = Grid(width, height)
         self.grid.wall_rect(0, 0, width, height)
         self.agent_pos = (1, 1)
-        self.agent_dir = 0
+        self.agent_dir = self._agent_dir
         self.put_obj(Key(self._key_color), 2, 1)
         self.put_obj(Door("red", is_locked=True), 3, 1)
+        if self._distractor_key_color is not None:
+            self.put_obj(
+                Key(self._distractor_key_color), *self._distractor_key_pos
+            )
         self.mission = "probe"
 
 
 def make_locked_door_probe_env(
-    key_color: str = "red", agent_dir: int = 0
+    key_color: str = "red",
+    agent_dir: int = 0,
+    distractor_key_color: str | None = None,
+    distractor_key_pos: tuple[int, int] = (1, 3),
 ) -> LockedDoorProbeEnv:
-    env = LockedDoorProbeEnv(key_color)
-    env.agent_dir = agent_dir
-    return env
+    return LockedDoorProbeEnv(
+        key_color=key_color,
+        agent_dir=agent_dir,
+        distractor_key_color=distractor_key_color,
+        distractor_key_pos=distractor_key_pos,
+    )
 
 
 class GoToGoalProbeEnv(MiniGridEnv):
