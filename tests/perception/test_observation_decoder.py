@@ -7,7 +7,8 @@ from neuro_symbolic_vln.contracts import (
 from neuro_symbolic_vln.perception import observation_decoder
 from neuro_symbolic_vln.perception.observation_decoder import (
     decode_view,
-    rotate_local_delta,
+    egocentric_delta_to_world,
+    # rotate_local_delta,
 )
 
 
@@ -59,19 +60,19 @@ def _resolve(xy: tuple[int, int]) -> str:
 
 
 def test_rotate_local_delta_east() -> None:
-    assert rotate_local_delta(dx=0, dy=-1, heading="east") == (1, 0)
+    assert egocentric_delta_to_world(right=0, forward=-1, heading="east") == (-1, 0)
 
 
 def test_rotate_local_delta_north() -> None:
-    assert rotate_local_delta(dx=1, dy=0, heading="north") == (1, 0)
+    assert egocentric_delta_to_world(right=1, forward=0, heading="north") == (1, 0)
 
 
 def test_rotate_local_delta_south() -> None:
-    assert rotate_local_delta(dx=0, dy=-1, heading="south") == (0, 1)
+    assert egocentric_delta_to_world(right=0, forward=-1, heading="south") == (0, -1)
 
 
 def test_rotate_local_delta_west() -> None:
-    assert rotate_local_delta(dx=0, dy=-1, heading="west") == (-1, 0)
+    assert egocentric_delta_to_world(right=0, forward=-1, heading="west") == (1, 0)
 
 
 def test_unseen_cells_emit_no_evidence() -> None:
@@ -92,7 +93,7 @@ def test_visible_empty_cell_emits_passable_true() -> None:
     assert passable
     assert all(e.polarity for e in passable)
     # Front cell of an east-facing agent at the origin is world (1, 0).
-    assert "loc-1_0" in {e.atom.arguments[0] for e in passable}
+    assert "loc-2_0" in {e.atom.arguments[0] for e in passable}
 
 
 def test_wall_emits_negative_passable() -> None:
@@ -105,6 +106,20 @@ def test_wall_emits_negative_passable() -> None:
         for e in evidence
         if e.atom.predicate == "passable"
         and e.atom.arguments == ("loc-1_0",)
+    ]
+    assert len(wall) == 1
+    assert not wall[0].polarity
+
+def test_wall_emits_negative_passable_2() -> None:
+    view = _make_view(overrides={(3, 4): _make_cell(2)})  # wall in front
+
+    evidence = decode_view(_make_packet(view), "ep-1", 0, 0, _resolve)
+
+    wall = [
+        e
+        for e in evidence
+        if e.atom.predicate == "passable"
+        and e.atom.arguments == ("loc-2_0",)
     ]
     assert len(wall) == 1
     assert not wall[0].polarity
