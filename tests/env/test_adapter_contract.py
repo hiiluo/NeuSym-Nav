@@ -22,10 +22,11 @@ def _make_episode() -> EpisodeSpec:
 
 
 def _make_adapter() -> MiniGridAdapter:
+    env = make_locked_door_probe_env()
     return MiniGridAdapter(
-        make_locked_door_probe_env(),
+        env,
         _make_episode(),
-        GoToVerifier(target_position=(4, 1)),
+        GoToVerifier(target_position=(4, 1), env=env),
     )
 
 

@@ -139,10 +139,11 @@ def test_integration_blocked_then_successful_move() -> None:
         public_action_budget=32,
         manifest_hash="test",
     )
+    env = make_locked_door_probe_env()
     adapter = MiniGridAdapter(
-        make_locked_door_probe_env(),
+        env,
         episode,
-        GoToVerifier(target_position=(4, 1)),
+        GoToVerifier(target_position=(4, 1), env=env),
     )
     tracker = DeadReckoningTracker(episode_id=episode.episode_id)
 

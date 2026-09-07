@@ -19,7 +19,7 @@ def test_adapter_step_returns_step_result() -> None:
         manifest_hash="test-hash",
     )
 
-    verifier = GoToVerifier(target_position=(3, 1))
+    verifier = GoToVerifier(target_position=(3, 1), env=env)
 
     adapter = MiniGridAdapter(env, episode, verifier)
 
@@ -30,6 +30,7 @@ def test_adapter_step_returns_step_result() -> None:
     print(f"Step result: {result}")
 
     assert isinstance(result, StepResult)
+
 
 def test_adapter_step_returns_task_success() -> None:
     env = make_locked_door_probe_env()
@@ -42,7 +43,7 @@ def test_adapter_step_returns_task_success() -> None:
         manifest_hash="test-hash",
     )
 
-    verifier = GoToVerifier(target_position=(3, 1))
+    verifier = GoToVerifier(target_position=(3, 1), env=env)
 
     adapter = MiniGridAdapter(env, episode, verifier)
 
