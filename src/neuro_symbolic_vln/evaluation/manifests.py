@@ -1,9 +1,3 @@
-"""Immutable episode manifests with evaluation-only sidecars.
-
-Public manifests feed ``EpisodeSpec`` (agent-visible). Sidecars carry
-oracle annotations (optima, solvability) and must never reach the agent.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -96,6 +90,10 @@ class EvaluationSidecar:
     optimal_grid_distance: int | None
     optimal_primitive_actions: int | None
     oracle_target_entity_id: str
+    # Filled once N1 corruption (A-06) and evidence capture (A-07) land.
+    observable_predicate_universe_hash: str | None = None
+    uncorrupted_evidence_hash: str | None = None
+    intervention: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -105,6 +103,11 @@ class EvaluationSidecar:
             "optimal_grid_distance": self.optimal_grid_distance,
             "optimal_primitive_actions": self.optimal_primitive_actions,
             "oracle_target_entity_id": self.oracle_target_entity_id,
+            "observable_predicate_universe_hash": (
+                self.observable_predicate_universe_hash
+            ),
+            "uncorrupted_evidence_hash": self.uncorrupted_evidence_hash,
+            "intervention": self.intervention,
         }
 
 
@@ -133,7 +136,9 @@ class _Layout:
                 f"go to the {self.task_spec['target_color']} "
                 f"{self.task_spec['target_type']}"
             )
-        return "Pick up the red key, unlock the red door, and reach the target."
+        # Must match the core grammar (plan §9.1): pickup clause, open
+        # clause, then goal clause.
+        return "pick up the red key, open the red door, then go to the goal"
 
     def episode_id(self, split: str, combo: int) -> str:
         short = "goto" if self.family == "goto_type_color" else "keydoor"

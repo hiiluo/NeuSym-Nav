@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Protocol
 
 from neuro_symbolic_vln.contracts import (
     CategoricalCell,
@@ -87,6 +89,7 @@ def decode_view(
     pose_x: int,
     pose_y: int,
     resolve_location: LocationResolver,
+    sensor_model_id: str = SENSOR_MODEL_ID,
 ) -> tuple[Evidence, ...]:
     """Decode one egocentric categorical view into local Evidence items.
 
@@ -111,6 +114,7 @@ def decode_view(
                     episode_id,
                     (right, forward),
                     f"{cell_x}-{cell_y}",
+                    sensor_model_id,
                 )
             )
     return tuple(evidence)
@@ -123,6 +127,7 @@ def _cell_evidence(
     episode_id: str,
     local_cell: tuple[int, int],
     cell_tag: str,
+    sensor_id: str,
 ) -> tuple[Evidence, ...]:
     object_name = (
         _OBJECT_NAMES[cell.object_index]
@@ -153,11 +158,11 @@ def _cell_evidence(
                 reliability=1.0,
                 observed_step=packet.step,
                 stale_after_steps=stale_after_steps,
-                source=SENSOR_MODEL_ID,
+                source=sensor_id,
                 provenance=Provenance(
                     episode_id=episode_id,
                     observation_id=packet.observation_id,
-                    sensor_model_id=SENSOR_MODEL_ID,
+                    sensor_model_id=sensor_id,
                     local_cell=local_cell,
                     corruption_channel=None,
                 ),
@@ -192,3 +197,56 @@ def _cell_evidence(
     elif object_name == "lava":
         add("passable", (location,), False)
     return tuple(items)
+
+
+@dataclass(frozen=True)
+class SensorModelSpec:
+    """Sensor configuration for decoding (plan §8.5)."""
+
+    sensor_model_id: str = SENSOR_MODEL_ID
+    corruption_channel: str | None = None
+
+
+class ObservationDecoder(Protocol):
+    def decode(
+        self,
+        observation: ObservationPacket,
+        sensor_model: SensorModelSpec,
+    ) -> tuple[Evidence, ...]: ...
+
+
+class LocalObservationDecoder(ObservationDecoder):
+    """Decoder bound to episode-local pose and the location registry.
+
+    N1 corruption applies *after* exact categorical decoding (plan §13.1),
+    so a non-null corruption channel is rejected here.
+    """
+
+    def __init__(
+        self,
+        episode_id: str,
+        pose: Callable[[], tuple[int, int]],
+        resolve_location: LocationResolver,
+    ) -> None:
+        self._episode_id = episode_id
+        self._pose = pose
+        self._resolve_location = resolve_location
+
+    def decode(
+        self,
+        observation: ObservationPacket,
+        sensor_model: SensorModelSpec,
+    ) -> tuple[Evidence, ...]:
+        if sensor_model.corruption_channel is not None:
+            raise ValueError(
+                "N1 corruption is applied after decoding, not inside it"
+            )
+        pose_x, pose_y = self._pose()
+        return decode_view(
+            observation,
+            self._episode_id,
+            pose_x,
+            pose_y,
+            self._resolve_location,
+            sensor_model_id=sensor_model.sensor_model_id,
+        )

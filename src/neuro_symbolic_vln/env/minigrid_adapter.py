@@ -1,9 +1,7 @@
-"""Adapter exposing MiniGrid through the shared environment contracts."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 import numpy as np
 from minigrid.core.actions import Actions
@@ -16,6 +14,7 @@ from neuro_symbolic_vln.contracts import (
     PrimitiveAction,
     StepResult,
 )
+from neuro_symbolic_vln.env.base import EnvironmentAdapter, TaskVerifier
 
 # MiniGrid directions (agent_dir) as the compass headings used
 # everywhere else in the project: 0=east, 1=south, 2=west, 3=north.
@@ -27,12 +26,6 @@ _DIRECTION_TO_HEADING = {
 }
 
 
-class TaskVerifier(Protocol):
-    def is_satisfied(
-        self, agent_position: tuple[int, int], agent_direction: int
-    ) -> bool: ...
-
-
 @dataclass(frozen=True)
 class _ActuatorState:
     position: tuple[int, int]
@@ -41,7 +34,7 @@ class _ActuatorState:
     front: tuple[str, str, bool] | None
 
 
-class MiniGridAdapter:
+class MiniGridAdapter(EnvironmentAdapter):
     """Expose only the local categorical view and typed step result."""
 
     _ACTION_MAP = {
@@ -53,18 +46,35 @@ class MiniGridAdapter:
         "done": Actions.done,
     }
 
-    def __init__(self, env: Any, episode: EpisodeSpec, verifier: TaskVerifier) -> None:
+    def __init__(
+        self,
+        env: Any,
+        episode: EpisodeSpec | None = None,
+        verifier: TaskVerifier | None = None,
+    ) -> None:
         self._env = env
         self._episode = episode
         self._verifier = verifier
         self._step = 0
         self._observation_id = 0
 
-    def reset(self, *, seed: int | None = None) -> ObservationPacket:
+    def reset(
+        self,
+        episode: EpisodeSpec | None = None,
+        *,
+        seed: int | None = None,
+    ) -> ObservationPacket:
+        if episode is not None:
+            self._episode = episode
         self._env.reset(seed=seed)
         self._step = 0
         self._observation_id = 0
         return self._observation()
+
+    def close(self) -> None:
+        close = getattr(self._env, "close", None)
+        if close is not None:
+            close()
 
     def step(self, action: PrimitiveAction) -> StepResult:
         try:
@@ -78,9 +88,11 @@ class MiniGridAdapter:
         self._step += 1
         observation = self._observation()
         action_succeeded = before != after and action.name != "done"
-        task_success = self._verifier.is_satisfied(
-            after.position, after.direction
-        )
+        if self._verifier is None:
+            raise RuntimeError(
+                "MiniGridAdapter.step() requires a TaskVerifier"
+            )
+        task_success = self._verifier.evaluate().task_success
         return StepResult(
             observation=observation,
             action_succeeded=action_succeeded,
@@ -115,6 +127,7 @@ class MiniGridAdapter:
         )
 
     def _observation(self) -> ObservationPacket:
+        assert self._episode is not None
         encoded = np.asarray(self._env.unwrapped.gen_obs()["image"])
         cells = tuple(
             tuple(

@@ -1,3 +1,5 @@
+import pytest
+
 from neuro_symbolic_vln.contracts import (
     CategoricalCell,
     CategoricalView,
@@ -6,9 +8,10 @@ from neuro_symbolic_vln.contracts import (
 )
 from neuro_symbolic_vln.perception import observation_decoder
 from neuro_symbolic_vln.perception.observation_decoder import (
+    LocalObservationDecoder,
+    SensorModelSpec,
     decode_view,
     egocentric_delta_to_world,
-    # rotate_local_delta,
 )
 
 
@@ -161,3 +164,31 @@ def test_module_has_no_global_state() -> None:
             continue
         attr = getattr(observation_decoder, name)
         assert not isinstance(attr, (dict, list, set)), name
+
+
+def test_local_observation_decoder_matches_pure_decode() -> None:
+    view = _make_view()
+    packet = _make_packet(view)
+    decoder = LocalObservationDecoder(
+        episode_id="ep-1",
+        pose=lambda: (0, 0),
+        resolve_location=_resolve,
+    )
+
+    decoded = decoder.decode(packet, SensorModelSpec())
+
+    assert decoded == decode_view(packet, "ep-1", 0, 0, _resolve)
+
+
+def test_decoder_rejects_n1_corruption_channel() -> None:
+    decoder = LocalObservationDecoder(
+        episode_id="ep-1",
+        pose=lambda: (0, 0),
+        resolve_location=_resolve,
+    )
+
+    with pytest.raises(ValueError, match="after decoding"):
+        decoder.decode(
+            _make_packet(_make_view()),
+            SensorModelSpec(corruption_channel="N1-FLIP-10"),
+        )
