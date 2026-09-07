@@ -19,7 +19,8 @@ from neuro_symbolic_vln.contracts import (
     SymbolicAction,
 )
 from neuro_symbolic_vln.control.controller import MiniGridController
-from neuro_symbolic_vln.env.minigrid_adapter import MiniGridAdapter, TaskVerifier
+from neuro_symbolic_vln.env.base import TaskVerifier
+from neuro_symbolic_vln.env.minigrid_adapter import MiniGridAdapter
 from neuro_symbolic_vln.env.tasks import (
     make_goto_goal_probe_env,
     make_locked_door_probe_env,
@@ -207,12 +208,14 @@ def run_b3_episode(
     env: Any
     if family == "key_door_goal":
         env = make_locked_door_probe_env(agent_dir=seed % 4)
-        verifier = GoToVerifier(target_position=(4, 1))
-        instruction = "Pick up key, unlock door, and reach the target."
+        verifier = GoToVerifier(target_position=(4, 1), env=env)
+        instruction = (
+            "pick up the red key, open the red door, then go to the goal"
+        )
     elif family == "goto_type_color":
         env = make_goto_goal_probe_env(agent_dir=seed % 4)
-        verifier = GoToVerifier(target_position=(3, 1))
-        instruction = "Go to the green ball."
+        verifier = GoToVerifier(target_position=(3, 1), env=env)
+        instruction = "go to the green ball."
     else:
         raise ValueError(f"Unknown task family for B3: {family}")
 
@@ -254,10 +257,9 @@ def run_b3_episode(
 
     for step_idx, action in enumerate(plan.actions):
         if action.name == "confirm-goto":
-            # Confirmation action: calls verifier without emitting primitive action
-            pos = env.unwrapped.agent_pos
-            direction = int(env.unwrapped.agent_dir)
-            if verifier.is_satisfied((int(pos[0]), int(pos[1])), direction):
+            # Confirmation action: authoritative verifier (plan §11.6),
+            # no primitive action is emitted.
+            if verifier.evaluate().task_success:
                 task_success = True
 
             traces.append(
