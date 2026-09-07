@@ -85,3 +85,42 @@ def test_serializer_emits_valid_pddl_problem_parseable_by_pyperplan() -> None:
         parser.set_prob_file(tmp.name)
         prob = parser.parse_problem(dom)
         assert prob.name == "current-state"
+
+
+def test_serializer_filters_non_domain_facts_and_normalizes_aliases() -> None:
+    builder = LocationGraphBuilder()
+    builder.add_edge("loc-1", "east", "loc-2")
+    graph = builder.build()
+
+    state = CommittedPlanningState(
+        version=1,
+        state_hash="state-filter",
+        true_facts=frozenset(
+            {
+                GroundAtom("at", ("robot", "loc-1")),  # alias for robot-at
+                GroundAtom("free", ("loc-2",)),  # alias for passable
+                GroundAtom("wall", ("loc-9",)),  # non-domain predicate
+            }
+        ),
+        unresolved_required_facts=frozenset(),
+        provenance_by_fact={},
+        location_graph=graph,
+    )
+
+    problem_str = serialize_problem(state, goal_atom=GroundAtom("task-satisfied", ()))
+
+    assert "(robot-at robot loc-1)" in problem_str
+    assert "(passable loc-2)" in problem_str
+    assert "wall" not in problem_str
+    assert "(at " not in problem_str
+    assert "(free " not in problem_str
+
+    domain_path = get_domain_path()
+    parser = Parser(str(domain_path))
+    dom = parser.parse_domain()
+    with tempfile.NamedTemporaryFile("w", suffix=".pddl") as tmp:
+        tmp.write(problem_str)
+        tmp.flush()
+        parser.set_prob_file(tmp.name)
+        prob = parser.parse_problem(dom)
+        assert prob.name == "current-state"

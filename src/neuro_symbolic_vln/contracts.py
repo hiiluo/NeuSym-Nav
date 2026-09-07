@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol
 
 LocationId = str
 HeadingId = str
@@ -149,10 +150,12 @@ class PlanResult:
     problem_hash: str | None
     reason: str | None
 
+
 @dataclass(frozen=True)
 class GoalProgram:
     family: str
     ordered_subgoals: tuple[GroundAtom, ...]
+
 
 @dataclass(frozen=True)
 class ParseResult:
@@ -160,6 +163,7 @@ class ParseResult:
     goal_program: GoalProgram | None
     alternatives: tuple[GoalProgram, ...]
     reason: str | None
+
 
 class EpisodeOutcome(StrEnum):
     SUCCESS = "success"
@@ -175,17 +179,38 @@ class EpisodeOutcome(StrEnum):
     ACTION_BUDGET_EXHAUSTED = "action_budget_exhausted"
     ENVIRONMENT_TERMINATED_FAILURE = "environment_terminated_failure"
 
+
 class ParseStatus(StrEnum):
     DETERMINISTIC = "deterministic"
     AMBIGUOUS = "ambiguous"
     UNSUPPORTED = "unsupported"
+
 
 class GroundingStatus(StrEnum):
     RESOLVED = "resolved"
     AMBIGUOUS = "ambiguous"
     UNRESOLVED = "unresolved"
 
+
 class ValidationDisposition(StrEnum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     UNCERTAIN = "uncertain"
+
+
+@dataclass(frozen=True)
+class ValidationDecision:
+    evidence_id: EvidenceId
+    disposition: ValidationDisposition
+    reason_code: str
+    supporting_evidence_ids: tuple[EvidenceId, ...]
+    conflicting_evidence_ids: tuple[EvidenceId, ...]
+
+
+class Validator(Protocol):
+    def validate(
+        self,
+        evidence: tuple[Evidence, ...],
+        belief: Mapping[GroundAtom, BeliefRecord],
+        current_step: int,
+    ) -> tuple[ValidationDecision, ...]: ...
