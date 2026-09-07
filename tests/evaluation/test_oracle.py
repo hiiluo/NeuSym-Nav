@@ -126,7 +126,7 @@ def test_key_door_requires_pickup_before_forward() -> None:
     assert solution.optimal_primitive_actions == 1
     assert solution.optimal_grid_distance == 1
 
-def test_key_door_requires_pickup_before_forward() -> None:
+def test_key_door_requires_pickup_before_forward_2() -> None:
     model = OracleTaskModel(
         family="key_door_goal",
         start=(1, 1),
@@ -150,7 +150,7 @@ def test_shortest_path() -> None:
             start_heading="east",
             passable=frozenset({(0,0), (0,1), (0, 2), (0,3), (0,4),
                                 (1,0), (1,1),         (1,3),
-                                (2,0), (2,1),                      
+                                (2,0), (2,1),
                                 (3,0), (3,1), (3, 2), (3,3), (3,4),
                                               (4, 2), (4,3), (4,4),
                                 (5,0), (5,1), (5, 2)
@@ -158,7 +158,7 @@ def test_shortest_path() -> None:
             keys=frozenset({((1, 3), "red")}),
             locked_doors=frozenset({((4, 0), "red")}),
             target=(5, 0),
-        )       
+        )
     solution = ExactOracle().solve(model)
     assert solution.solvable
     assert solution.optimal_primitive_actions == 11
@@ -171,9 +171,9 @@ def test_chooses_lower_primitive_cost_path() -> None:
         start_heading="east",
         passable=frozenset({
             (0, 0), (0, 1), (0, 2),
-            (1, 0),         (1, 2),  
-            (2, 0),                 (2, 2), 
-            (3, 0),                 (3, 2), 
+            (1, 0),         (1, 2),
+            (2, 0),                 (2, 2),
+            (3, 0),                 (3, 2),
         }),
         keys=frozenset(),
         locked_doors=frozenset(),
@@ -218,7 +218,7 @@ def test_room_in_room() -> None:
             (0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0),
             (0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1),
             (0, 2), (1, 2), (2, 2), (3, 2), (4, 2), (5, 2), (6, 2),
-            (0, 3), (1, 3), (2, 3),                         (6, 3),    
+            (0, 3), (1, 3), (2, 3),                         (6, 3),
             (0, 4), (1, 4), (2, 4),         (4, 4),         (6, 4),
             (0, 5), (1, 5), (2, 5),                         (6, 5),
             (0, 6), (1, 6), (2, 6), (3, 6), (4, 6), (5, 6), (6, 6),
@@ -233,7 +233,7 @@ def test_room_in_room() -> None:
     assert solution.solvable
     assert solution.optimal_grid_distance == 7
     assert solution.optimal_primitive_actions == 11
-    
+
 def test_reverse_direction_requires_two_turns() -> None:
     model = OracleTaskModel(
         family="test",
