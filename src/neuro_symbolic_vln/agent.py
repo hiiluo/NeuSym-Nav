@@ -9,6 +9,7 @@ from typing import Any
 
 from neuro_symbolic_vln.contracts import (
     CommittedPlanningState,
+    EpisodeOutcome,
     EpisodeSpec,
     GoalProgram,
     GroundAtom,
@@ -19,6 +20,7 @@ from neuro_symbolic_vln.contracts import (
     SymbolicAction,
 )
 from neuro_symbolic_vln.control.controller import MiniGridController
+from neuro_symbolic_vln.control.monitor import ExecutionMonitor, MonitorDecision
 from neuro_symbolic_vln.env.base import TaskVerifier
 from neuro_symbolic_vln.env.minigrid_adapter import MiniGridAdapter
 from neuro_symbolic_vln.env.tasks import (
@@ -49,6 +51,7 @@ class B3StepTrace:
     action: SymbolicAction
     primitive: str | None
     step_result: StepResult | None
+    monitor_decision: MonitorDecision | None
     oracle_input: bool = True
 
 
@@ -58,6 +61,8 @@ class B3EpisodeResult:
     family: str
     seed: int
     plan: PlanResult
+    terminal_outcome: EpisodeOutcome | None
+    replan_count: int
     task_success: bool
     untyped_failures: bool
     oracle_input: bool
@@ -92,9 +97,19 @@ def plan_committed_state(
     return plan_result
 
 
+def _episode_outcome_for_plan(status: PlanStatus) -> EpisodeOutcome:
+    if status is PlanStatus.TIMEOUT:
+        return EpisodeOutcome.PLANNER_TIMEOUT
+    if status in (PlanStatus.PLANNER_ERROR, PlanStatus.SERIALIZATION_ERROR):
+        return EpisodeOutcome.PLANNER_ERROR
+    return EpisodeOutcome.KNOWN_SPACE_DISCONNECTED
+
+
 def extract_oracle_committed_state(
     env: Any,
     verifier: TaskVerifier | None = None,
+    *,
+    version: int = 1,
 ) -> CommittedPlanningState:
     """Privileged extractor for B3 baseline only: constructs CommittedPlanningState
     directly from true env state.
@@ -183,11 +198,14 @@ def extract_oracle_committed_state(
             t_name = "target-1"
         true_facts.add(GroundAtom("target-at", (t_name, target_loc)))
 
-    state_bytes = f"{agent_pos}:{agent_dir}:{len(true_facts)}".encode()
+    fact_payload = "\n".join(
+        f"{atom.predicate}({','.join(atom.arguments)})" for atom in sorted(true_facts)
+    )
+    state_bytes = f"{agent_pos}:{agent_dir}\n{fact_payload}".encode()
     state_hash = hashlib.sha256(state_bytes).hexdigest()
 
     return CommittedPlanningState(
-        version=1,
+        version=version,
         state_hash=state_hash,
         true_facts=frozenset(true_facts),
         unresolved_required_facts=frozenset(),
@@ -209,9 +227,7 @@ def run_b3_episode(
     if family == "key_door_goal":
         env = make_locked_door_probe_env(agent_dir=seed % 4)
         verifier = GoToVerifier(target_position=(4, 1), env=env)
-        instruction = (
-            "pick up the red key, open the red door, then go to the goal"
-        )
+        instruction = "pick up the red key, open the red door, then go to the goal"
     elif family == "goto_type_color":
         env = make_goto_goal_probe_env(agent_dir=seed % 4)
         verifier = GoToVerifier(target_position=(3, 1), env=env)
@@ -229,74 +245,168 @@ def run_b3_episode(
 
     adapter = MiniGridAdapter(env, episode, verifier)
     adapter.reset(seed=seed)
+    monitor = ExecutionMonitor()
 
-    # 2. Extract oracle committed state (B3 privileged baseline exception)
-    oracle_state = extract_oracle_committed_state(env, verifier)
+    # 2. Extract oracle committed state (B3 privileged baseline exception).
+    # Recovery deliberately repeats this extractor; it never enters the normal
+    # belief pipeline.
+    oracle_state = extract_oracle_committed_state(env, verifier, version=1)
 
-    # 3. Plan using positive STRIPS
+    # 3. Plan using positive STRIPS.
     goal_atom = GroundAtom("task-satisfied", ())
     plan = plan_committed_state(oracle_state, goal_atom, config=config)
+    primitive_count = 0
 
-    if plan.status != PlanStatus.FOUND:
+    def episode_result(
+        *,
+        terminal_outcome: EpisodeOutcome,
+        task_success: bool = False,
+    ) -> B3EpisodeResult:
         return B3EpisodeResult(
             episode_id=episode_id,
             family=family,
             seed=seed,
             plan=plan,
-            task_success=False,
+            terminal_outcome=terminal_outcome,
+            replan_count=monitor.replan_count,
+            task_success=task_success,
             untyped_failures=False,
             oracle_input=True,
-            traces=(),
-            step_count=0,
+            traces=tuple(traces),
+            step_count=primitive_count,
         )
 
-    # 4. Execute plan using controller
-    controller = MiniGridController()
-    traces: list[B3StepTrace] = []
-    task_success = False
+    if plan.status != PlanStatus.FOUND:
+        traces: list[B3StepTrace] = []
+        return episode_result(terminal_outcome=_episode_outcome_for_plan(plan.status))
 
-    for step_idx, action in enumerate(plan.actions):
-        if action.name == "confirm-goto":
-            # Confirmation action: authoritative verifier (plan §11.6),
-            # no primitive action is emitted.
-            if verifier.evaluate().task_success:
-                task_success = True
+    def plan_pose(state: CommittedPlanningState) -> tuple[str, str]:
+        robot_at = next(
+            atom for atom in state.true_facts if atom.predicate == "robot-at"
+        )
+        facing = next(atom for atom in state.true_facts if atom.predicate == "facing")
+        return robot_at.arguments[1], facing.arguments[1]
 
-            traces.append(
-                B3StepTrace(
-                    step=step_idx,
-                    action=action,
-                    primitive=None,
-                    step_result=None,
-                    oracle_input=True,
-                )
-            )
-            break
-
-        primitive_name = controller.to_primitive(action)
-        step_res = adapter.step(PrimitiveAction(primitive_name))
-
-        traces.append(
-            B3StepTrace(
-                step=step_idx,
-                action=action,
-                primitive=primitive_name,
-                step_result=step_res,
-                oracle_input=True,
-            )
+    def plan_signature(
+        state: CommittedPlanningState, current_plan: PlanResult
+    ) -> tuple[str, str, tuple[str, str], str]:
+        return (
+            "task-satisfied",
+            state.state_hash,
+            plan_pose(state),
+            current_plan.status.value,
         )
 
-        if step_res.task_success:
-            task_success = True
-
-    return B3EpisodeResult(
-        episode_id=episode_id,
-        family=family,
-        seed=seed,
-        plan=plan,
-        task_success=task_success,
-        untyped_failures=False,
-        oracle_input=True,
-        traces=tuple(traces),
-        step_count=len(traces),
+    # The initial signature is part of loop detection. Replans append their
+    # signatures to the same monitor history, so a third identical state is a
+    # loop rather than an unbounded retry.
+    traces = []
+    initial_loop_outcome = monitor.record_and_check_loop(
+        plan_signature(oracle_state, plan)
     )
+    if initial_loop_outcome is not None:
+        return episode_result(terminal_outcome=initial_loop_outcome)
+
+    # 4. Execute the active plan with a bounded recovery loop.
+    controller = MiniGridController()
+    task_success = False
+    while True:
+        recovery_requested = False
+        for action in plan.actions:
+            if action.name == "confirm-goto":
+                # Confirmation is authoritative but emits no primitive.
+                verification = verifier.evaluate()
+                decision = monitor.observe_action_result(
+                    action,
+                    action_succeeded=verification.task_success,
+                    failure_reason=getattr(verification, "reason_code", None),
+                )
+                traces.append(
+                    B3StepTrace(
+                        step=len(traces),
+                        action=action,
+                        primitive=None,
+                        step_result=None,
+                        monitor_decision=(
+                            decision if decision.requires_replan else None
+                        ),
+                        oracle_input=True,
+                    )
+                )
+                if verification.task_success:
+                    task_success = True
+                    return episode_result(
+                        terminal_outcome=EpisodeOutcome.SUCCESS,
+                        task_success=True,
+                    )
+                recovery_requested = decision.requires_replan
+            else:
+                if primitive_count >= episode.public_action_budget:
+                    return episode_result(
+                        terminal_outcome=EpisodeOutcome.ACTION_BUDGET_EXHAUSTED,
+                        task_success=task_success,
+                    )
+
+                primitive_name = controller.to_primitive(action)
+                step_res = adapter.step(PrimitiveAction(primitive_name))
+                primitive_count += 1
+                decision = monitor.observe_action_result(action, step_result=step_res)
+                traces.append(
+                    B3StepTrace(
+                        step=len(traces),
+                        action=action,
+                        primitive=primitive_name,
+                        step_result=step_res,
+                        monitor_decision=(
+                            decision if decision.requires_replan else None
+                        ),
+                        oracle_input=True,
+                    )
+                )
+
+                if step_res.task_success:
+                    # A successful primitive advances the plan cursor. The
+                    # confirmation action remains authoritative and is kept as
+                    # the final no-primitive trace in normal B3 episodes.
+                    task_success = True
+                if (
+                    step_res.terminated or step_res.truncated
+                ) and not step_res.task_success:
+                    return episode_result(
+                        terminal_outcome=EpisodeOutcome.ENVIRONMENT_TERMINATED_FAILURE,
+                        task_success=False,
+                    )
+                recovery_requested = decision.requires_replan
+
+            if recovery_requested:
+                break
+
+        if not recovery_requested:
+            return episode_result(
+                terminal_outcome=(
+                    EpisodeOutcome.SUCCESS
+                    if task_success
+                    else EpisodeOutcome.KNOWN_SPACE_DISCONNECTED
+                ),
+                task_success=task_success,
+            )
+
+        budget_outcome = monitor.check_replan_budget()
+        if budget_outcome is not None:
+            return episode_result(terminal_outcome=budget_outcome)
+
+        # Recovery invariant: re-observe through the privileged extractor,
+        # incrementing its semantic version, then plan from that committed state.
+        oracle_state = extract_oracle_committed_state(
+            env, verifier, version=oracle_state.version + 1
+        )
+        plan = plan_committed_state(oracle_state, goal_atom, config=config)
+        if plan.status != PlanStatus.FOUND:
+            return episode_result(
+                terminal_outcome=_episode_outcome_for_plan(plan.status)
+            )
+
+        loop_outcome = monitor.record_and_check_loop(plan_signature(oracle_state, plan))
+        if loop_outcome is not None:
+            return episode_result(terminal_outcome=loop_outcome)
+        # The outer loop restarts at cursor zero with the new plan.
