@@ -5,6 +5,7 @@ import pytest
 from neuro_symbolic_vln.agent import plan_committed_state
 from neuro_symbolic_vln.contracts import (
     CommittedPlanningState,
+    EpisodeOutcome,
     GoalProgram,
     GroundAtom,
     LocationGraph,
@@ -25,6 +26,7 @@ def test_b3_key_door_plan_executes_successfully() -> None:
     """Canonical test case from Member B Implementation Handbook."""
     result = run_b3_episode(seed=7, family="key_door_goal")
     assert result.plan.status is PlanStatus.FOUND
+    assert result.terminal_outcome is EpisodeOutcome.SUCCESS
     assert result.task_success
     assert not result.untyped_failures
     assert result.oracle_input is True
@@ -34,6 +36,7 @@ def test_b3_goto_plan_executes_successfully() -> None:
     """Canonical test case for goto_type_color family."""
     result = run_b3_episode(seed=7, family="goto_type_color")
     assert result.plan.status is PlanStatus.FOUND
+    assert result.terminal_outcome is EpisodeOutcome.SUCCESS
     assert result.task_success
     assert not result.untyped_failures
     assert result.oracle_input is True
@@ -58,6 +61,8 @@ def test_b3_smoke_key_door_episodes(seed: int) -> None:
 
     # 2. Episode succeeded on MiniGrid
     assert result.task_success is True, f"Episode failed on seed {seed}"
+    assert result.terminal_outcome is EpisodeOutcome.SUCCESS
+    assert result.replan_count == 0
     assert result.untyped_failures is False
 
     # 3. Gate G1 constraints
@@ -68,6 +73,7 @@ def test_b3_smoke_key_door_episodes(seed: int) -> None:
             "Violation of G1: primitive 'done' must never be emitted"
         )
         assert trace.oracle_input is True
+        assert trace.monitor_decision is None
 
 
 @pytest.mark.parametrize("seed", list(range(10)))
@@ -82,6 +88,8 @@ def test_b3_smoke_goto_episodes(seed: int) -> None:
     assert len(result.plan.actions) > 0
 
     assert result.task_success is True, f"Episode failed on seed {seed}"
+    assert result.terminal_outcome is EpisodeOutcome.SUCCESS
+    assert result.replan_count == 0
     assert result.untyped_failures is False
 
     assert result.oracle_input is True
@@ -90,6 +98,7 @@ def test_b3_smoke_goto_episodes(seed: int) -> None:
             "Violation of G1: primitive 'done' must never be emitted"
         )
         assert trace.oracle_input is True
+        assert trace.monitor_decision is None
 
 
 def test_20_episodes_aggregate_smoke_metrics() -> None:
