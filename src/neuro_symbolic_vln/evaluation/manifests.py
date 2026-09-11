@@ -19,12 +19,20 @@ from neuro_symbolic_vln.evaluation.oracle import (
 SCHEMA_VERSION = "1.0"
 
 # Deterministic layout variation space (see docs/plan §15.1-15.2):
-# combo index encodes heading, color and position variants.
+# combo index encodes heading, color and position variants. Combos 0-29
+# feed smoke/dev; combos 32+ feed RQ2 with intervention-safe distractors
+# (off the blocked corridor) so post-intervention states stay solvable.
 _GOTO_COLORS = ("green", "blue", "purple", "yellow", "red")
 _GOTO_TARGET_POSITIONS = ((3, 1), (4, 2))
+_GOTO_DISTRACTOR_POSITIONS = ((2, 2), (3, 3))
 _KEYDOOR_DISTRACTOR_COLORS = ("blue", "green", "purple", "yellow")
-_DISTRACTOR_POSITIONS = ((1, 3), (2, 2))
+_DISTRACTOR_POSITIONS = ((1, 3), (2, 2), (4, 3), (4, 2), (3, 3))
 _SPLIT_SEED_BASE = {"smoke": 10_000, "dev": 20_000}
+
+# Fixed RQ2 intervention design (plan §13.2).
+_BLOCK_TARGET = (2, 1)
+_BLOCK_ALTERNATE_ROUTE = ((1, 2), (2, 2), (3, 2), (4, 2), (4, 1))
+_RELOCK_TARGET = (3, 1)
 
 
 class ManifestGenerationError(ValueError):
@@ -155,7 +163,8 @@ def _layouts_for_combo(combo: int) -> tuple[_Layout, _Layout]:
     heading = combo % 4
 
     goto_color = _GOTO_COLORS[(combo // 4) % len(_GOTO_COLORS)]
-    goto_pos = _GOTO_TARGET_POSITIONS[combo // 20]
+    goto_pos = _GOTO_TARGET_POSITIONS[(combo // 20) % 2]
+    goto_distractor_pos = _GOTO_DISTRACTOR_POSITIONS[combo // 40]
     goto = _Layout(
         family="goto_type_color",
         target=goto_pos,
@@ -164,6 +173,7 @@ def _layouts_for_combo(combo: int) -> tuple[_Layout, _Layout]:
             "target_color": goto_color,
             "target_pos": goto_pos,
             "agent_dir": heading,
+            "distractor_pos": goto_distractor_pos,
         },
         layout_payload={
             "family": "goto_type_color",
@@ -171,16 +181,18 @@ def _layouts_for_combo(combo: int) -> tuple[_Layout, _Layout]:
             "target_color": goto_color,
             "target_pos": goto_pos,
             "agent_dir": heading,
+            "distractor_pos": goto_distractor_pos,
         },
         env_kwargs={
             "target_type": "ball",
             "target_color": goto_color,
             "target_pos": goto_pos,
             "agent_dir": heading,
+            "distractor_pos": goto_distractor_pos,
         },
     )
 
-    variant = (combo // 4) % 9
+    variant = (combo // 4) % 21
     if variant == 0:
         distractor_color: str | None = None
         distractor_pos = (1, 3)
@@ -214,10 +226,30 @@ def _layouts_for_combo(combo: int) -> tuple[_Layout, _Layout]:
     return goto, keydoor
 
 
+def _split_ranges(split_config: dict[str, Any]) -> dict[str, tuple[int, int]]:
+    """Combo (start, count) per family for a split.
+
+    Accepts either a shared range (smoke/dev) or explicit per-family
+    ranges (RQ2, where the two families need different combo windows).
+    """
+    if "combos" in split_config:
+        return {
+            family: (int(spec["start"]), int(spec["count"]))
+            for family, spec in split_config["combos"].items()
+        }
+    start = int(split_config["combo_start"])
+    count = int(split_config["combo_count"])
+    return {
+        "goto_type_color": (start, count),
+        "key_door_goal": (start, count),
+    }
+
+
 def generate_manifests(config: dict[str, Any]) -> GenerationResult:
     """Generate public manifests + sidecars from a generator config.
 
-    Rejects unsolvable layouts and duplicate/cross-split layout hashes.
+    Rejects unsolvable layouts, duplicate/cross-split layout hashes, and
+    interventions whose post-state the oracle cannot confirm.
     """
     generator_version = str(config["generator_version"])
     budget = int(config["public_action_budget"])
@@ -229,11 +261,12 @@ def generate_manifests(config: dict[str, Any]) -> GenerationResult:
     sidecars: list[EvaluationSidecar] = []
 
     for split, split_config in config["splits"].items():
-        start = int(split_config["combo_start"])
-        count = int(split_config["combo_count"])
         seed_base = int(_SPLIT_SEED_BASE.get(split, 30_000))
-        for combo in range(start, start + count):
-            for layout in _layouts_for_combo(combo):
+        for family, (start, count) in _split_ranges(split_config).items():
+            for combo in range(start, start + count):
+                layout = _layouts_for_combo(combo)[
+                    0 if family == "goto_type_color" else 1
+                ]
                 episode_id = layout.episode_id(split, combo)
                 env = layout.build_env()
                 env.reset(seed=seed_base + combo)
@@ -250,6 +283,41 @@ def generate_manifests(config: dict[str, Any]) -> GenerationResult:
                         f"layout {episode_id} already used in split {previous}"
                     )
                 seen_layouts[layout_hash] = split
+
+                intervention_dict = None
+                if split_config.get("interventions"):
+                    # Local import avoids a manifest<->interventions cycle.
+                    from neuro_symbolic_vln.evaluation.interventions import (
+                        annotate_intervention,
+                        choose_block_intervention,
+                        choose_relock_intervention,
+                    )
+
+                    spec = (
+                        choose_block_intervention(
+                            _BLOCK_TARGET,
+                            _BLOCK_ALTERNATE_ROUTE,
+                            seed=seed_base + combo,
+                        )
+                        if layout.family == "goto_type_color"
+                        else choose_relock_intervention(
+                            _RELOCK_TARGET, seed=seed_base + combo
+                        )
+                    )
+                    annotation = annotate_intervention(
+                        env, layout.family, layout.target, spec, solution
+                    )
+                    if not annotation.recoverable:
+                        raise ManifestGenerationError(
+                            f"intervention makes episode unsolvable: "
+                            f"{episode_id}"
+                        )
+                    intervention_dict = {
+                        **spec.to_dict(),
+                        "recoverable": annotation.recoverable,
+                        "pre_optimum": annotation.pre_optimum,
+                        "post_optimum": annotation.post_optimum,
+                    }
 
                 publics.append(
                     PublicManifest(
@@ -281,6 +349,7 @@ def generate_manifests(config: dict[str, Any]) -> GenerationResult:
                             if layout.family == "goto_type_color"
                             else "target-goal"
                         ),
+                        intervention=intervention_dict,
                     )
                 )
     return GenerationResult(tuple(publics), tuple(sidecars))
