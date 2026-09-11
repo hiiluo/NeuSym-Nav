@@ -65,6 +65,7 @@ class OracleTaskModel:
     keys: frozenset[tuple[tuple[int, int], str]]
     locked_doors: frozenset[tuple[tuple[int, int], str]]
     target: tuple[int, int]
+    carrying: str | None = None
 
 
 @dataclass(frozen=True)
@@ -103,7 +104,7 @@ class ExactOracle:
             x=model.start[0],
             y=model.start[1],
             heading=model.start_heading,
-            carrying=None,
+            carrying=model.carrying,
             remaining_keys=frozenset(key_colors),
             locked_doors=frozenset(door_colors),
         )
@@ -209,6 +210,9 @@ def model_from_probe_env(
         int(env.unwrapped.agent_dir)
     ]
     position = env.unwrapped.agent_pos
+    carrying = None
+    if env.unwrapped.carrying is not None:
+        carrying = str(env.unwrapped.carrying.color)
     return OracleTaskModel(
         family=family,
         start=(int(position[0]), int(position[1])),
@@ -217,4 +221,5 @@ def model_from_probe_env(
         keys=frozenset(keys),
         locked_doors=frozenset(locked_doors),
         target=target,
+        carrying=carrying,
     )
