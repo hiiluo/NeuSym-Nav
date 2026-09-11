@@ -87,7 +87,7 @@ class FrontierExplorer:
         candidates = tuple(
             FrontierCandidate(
                 location_id=location_id,
-                plan_length=plan_lengths.get(location_id, 0),
+                plan_length=plan_lengths.get(location_id, 0), #need further check cause 0 means no plan, but we want to include it in the candidates (really???)
                 discovered_step=self._discovered_step[location_id],
             )
             for location_id in traversable
