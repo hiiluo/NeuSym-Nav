@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
@@ -12,6 +13,12 @@ from neuro_symbolic_vln.evaluation.manifests import (
     generate_manifests,
     write_manifests,
 )
+from neuro_symbolic_vln.evaluation.runner import (
+    ConfigHashMismatchError,
+    ManifestHashMismatchError,
+    run_config,
+    validate_results,
+)
 from neuro_symbolic_vln.testing import run_b3_episode
 
 
@@ -22,7 +29,7 @@ def build_parser() -> ArgumentParser:
 
     evaluate = subparsers.add_parser("evaluate")
     evaluate.add_argument("--config", required=True)
-    evaluate.add_argument("--method", required=True)
+    evaluate.add_argument("--method", default=None)
 
     generate = subparsers.add_parser("generate-manifests")
     generate.add_argument("--config", required=True)
@@ -62,6 +69,15 @@ def build_parser() -> ArgumentParser:
         help="Path to manifest JSONL for expected episode ID validation",
     )
 
+    validate_results = subparsers.add_parser("validate-results")
+    validate_results.add_argument(
+        "--runs", required=True, help="Path to runs directory",
+    )
+    validate_results.add_argument(
+        "--expected-config", required=True,
+        help="Path to expected results config YAML",
+    )
+
     return parser
 
 
@@ -81,6 +97,8 @@ def main() -> int:
         return _run_summarize(args)
     if args.command == "validate-traces":
         return _run_validate_traces(args)
+    if args.command == "validate-results":
+        return _run_validate_results(args)
     parser.print_help()
     return 0
 
@@ -102,13 +120,37 @@ def _run_generate_manifests(args: Namespace) -> int:
 
 
 def _run_evaluate(args: Namespace) -> int:
-    if args.method != "B3":
-        print(f"unsupported method: {args.method}", file=sys.stderr)
-        return 2
-
     config_path = Path(args.config)
     with config_path.open() as handle:
         config = yaml.safe_load(handle)
+
+    # Frozen runner path: config declares run_id/manifests_dir/output_dir.
+    if "run_id" in config and "manifests_dir" in config:
+        if args.method:
+            config = {**config, "method": args.method}
+        try:
+            report = run_config(config)
+        except (ManifestHashMismatchError, ConfigHashMismatchError) as exc:
+            print(f"freeze violation: {exc}", file=sys.stderr)
+            return 3
+        print(
+            f"{report.run_id} [{report.method}]: "
+            f"{report.n_executed} executed / {report.n_skipped} skipped "
+            f"/ {report.n_rows} rows"
+        )
+        if report.summary is not None:
+            print(f"  metrics: {json.dumps(report.summary.to_dict())}")
+        print(f"  rows: {report.rows_path}")
+        print(f"  summary: {report.summary_path}")
+        if report.n_executed == 0 and report.n_skipped > 0:
+            return 4  # Loud: method unavailable, artifacts still written.
+        return 0
+
+    # Legacy B3 smoke path (configs/smoke.yaml).
+    method = args.method or config.get("method")
+    if method != "B3":
+        print(f"unsupported method: {method}", file=sys.stderr)
+        return 2
 
     results = []
     for entry in config["episodes"]:
@@ -130,6 +172,19 @@ def _run_evaluate(args: Namespace) -> int:
         return 0
     return 1
 
+def _run_validate_results(args: Namespace) -> int:
+    expected_path = Path(args.expected_config)
+    with expected_path.open() as handle:
+        expected_doc = yaml.safe_load(handle)
+    expected = expected_doc.get("expected_rows", expected_doc)
+    report = validate_results(args.runs, expected)
+    print(
+        f"validate-results: {report['total_actual_rows']} actual / "
+        f"{report['total_expected_rows']} expected rows"
+    )
+    for mismatch in report["mismatches"]:
+        print(f"  MISMATCH {mismatch}", file=sys.stderr)
+    return 0 if report["ok"] else 5
 
 # ---------------------------------------------------------------------------
 # B-09: audit

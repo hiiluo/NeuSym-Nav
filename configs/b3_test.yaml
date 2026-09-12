@@ -1,0 +1,17 @@
+# A-07 B3 test suite (plan §15.5).
+#
+# 120 clean base episodes (60/family from the ``test`` split) × B3
+# privileged oracle = 120 rows. B3 bypasses the belief pipeline via
+# the oracle extractor (see agent.extract_oracle_committed_state); it
+# is the paired baseline for RQ1/V1R1 numbers.
+run_id: b3_test
+method: B3
+condition: clean
+manifests_dir: data/manifests
+output_dir: runs/b3_test
+splits:
+  - test
+notes: |
+  Expected rows: 120. B3 is not subject to N1/N2 (privileged oracle
+  bypasses perception + monitor takes fresh state on replan) so this
+  is a pure "does the plan/execute stack work" measurement.
