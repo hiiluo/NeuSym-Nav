@@ -52,6 +52,23 @@ class InterventionSpec:
             }
         )
 
+    @classmethod
+    def from_sidecar(
+        cls, payload: dict[str, Any] | None
+    ) -> InterventionSpec | None:
+        """Rehydrate from a manifest-sidecar ``intervention`` payload."""
+        if not payload:
+            return None
+        target = payload["target"]
+        return cls(
+            intervention_id=str(payload["intervention_id"]),
+            kind=str(payload["kind"]),
+            target=(int(target[0]), int(target[1])),
+            checkpoint=str(payload["checkpoint"]),
+            seed=int(payload["seed"]),
+            recoverable=bool(payload.get("recoverable", False)),
+        )
+
 
 def choose_block_intervention(
     planned_next: tuple[int, int],
