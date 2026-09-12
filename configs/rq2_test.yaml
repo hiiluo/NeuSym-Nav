@@ -1,19 +1,26 @@
-# A-06 RQ2 test split: 40 episodes per family with fixed N2 interventions.
-# Goto episodes get a block intervention before the first planned
-# move-forward; key-door episodes get a door re-lock after the first
-# successful toggle. Every post-intervention state is oracle-confirmed
-# solvable; target/checkpoint/optima live in the sidecar only.
-output_dir: data/manifests
-generator_version: minigrid-core-v1
-public_action_budget: 32
-
+# A-07 RQ2 test suite (plan §15.5).
+#
+# 80 intervention episodes (40/family from the rq2_test split) × 2
+# recovery-capable belief methods (V0R1, V1R1) = 160 rows. Every
+# rq2_test manifest is oracle-confirmed recoverable at generation, so
+# the recovery denominator equals the row count within each crossing.
+#
+# V1R1 executes the belief closed-loop today; V0R1 runs the same loop
+# without validator filtering. N2 interventions are applied by manifest
+# sidecars (see configs/manifests_rq2.yaml + evaluation/interventions.py)
+# — the runner reads the intervention/recoverable flags so the metric
+# summary reports the correct denominator.
+run_id: rq2_test
+manifests_dir: data/manifests
+output_dir: runs/rq2_test
 splits:
-  rq2_test:
-    interventions: true
-    combos:
-      goto_type_color:
-        start: 40
-        count: 40
-      key_door_goal:
-        start: 32
-        count: 40
+  - rq2_test
+matrix:
+  - method: V1R0
+    condition: N2-fixed
+  - method: V1R1
+    condition: N2-fixed
+notes: |
+  Expected rows: 160 = 80 base × 2 crossings.
+  Recovery denominator per crossing = 80 because every intervention is
+  oracle-confirmed recoverable at manifest generation (§13.2).

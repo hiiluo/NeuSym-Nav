@@ -1,0 +1,32 @@
+# A-07 RQ1 test suite (plan §15.5).
+#
+# 120 clean base episodes (60/family from the ``test`` split) × 6
+# crossings = 720 rows. The crossings are the N1 corruption ablation
+# (3 channels) × belief-only methods (V0R0, V1R0). N1 corruption is
+# still a stub (perception decoder rejects corruption_channel today,
+# see observation_decoder.py) so the runner emits ``clean`` rows for
+# every crossing; the ``condition`` column tags each row so the row
+# count and grouping stay honest once the corruption plumbing lands.
+run_id: rq1_test
+manifests_dir: data/manifests
+output_dir: runs/rq1_test
+splits:
+  - test
+matrix:
+  - method: V0R0
+    condition: N1-color-flip
+  - method: V0R0
+    condition: N1-object-mask
+  - method: V0R0
+    condition: N1-cell-dropout
+  - method: V1R0
+    condition: N1-color-flip
+  - method: V1R0
+    condition: N1-object-mask
+  - method: V1R0
+    condition: N1-cell-dropout
+notes: |
+  Expected rows: 720 = 120 base × 6 crossings.
+  When N1 corruption merges via A-J03, the runner will apply per-condition
+  channels; the split, seeds and crossings above already lock the frozen
+  pairing so V0R0/V1R0 stay comparable episode-by-episode.
