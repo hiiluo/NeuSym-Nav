@@ -1,0 +1,46 @@
+# B-09 analysis configuration for paired bootstrap and audit.
+# Used by: ns-vln audit / ns-vln summarize / ns-vln validate-traces
+
+# Fixed seed for all statistical analysis — ensures reproducibility.
+analysis_seed: 42
+
+# Bootstrap parameters
+bootstrap:
+  n_resamples: 10000
+  ci_level: 0.95
+
+# RQ1: Validation before planning (V1R0 vs V0R0)
+rq1:
+  treatment_method: V1R0
+  control_method: V0R0
+  metrics:
+    - task_success
+    - plan_validity
+    - efficiency
+
+# RQ2: Bounded replanning (V1R1 vs V1R0)
+rq2:
+  treatment_method: V1R1
+  control_method: V1R0
+  metrics:
+    - task_success
+    - recovery_rate
+    - efficiency
+
+# Stratification axes
+strata:
+  families:
+    - key_door_goal
+    - goto_type_color
+  conditions:
+    - clean
+    - N1-DROP-15
+    - N1-FLIP-10
+
+# Directories
+runs_dir: runs/final
+trace_dir: runs/final
+output_dir: reports/month1
+
+# Source directory for leakage audit
+src_dir: src/neuro_symbolic_vln
