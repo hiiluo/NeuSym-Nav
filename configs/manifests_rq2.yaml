@@ -1,0 +1,19 @@
+# A-06 RQ2 test split: 40 episodes per family with fixed N2 interventions.
+# Goto episodes get a block intervention before the first planned
+# move-forward; key-door episodes get a door re-lock after the first
+# successful toggle. Every post-intervention state is oracle-confirmed
+# solvable; target/checkpoint/optima live in the sidecar only.
+output_dir: data/manifests
+generator_version: minigrid-core-v1
+public_action_budget: 32
+
+splits:
+  rq2_test:
+    interventions: true
+    combos:
+      goto_type_color:
+        start: 40
+        count: 40
+      key_door_goal:
+        start: 32
+        count: 40
