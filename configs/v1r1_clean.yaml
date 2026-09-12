@@ -1,0 +1,15 @@
+# A-07 V1R1 clean matrix (plan §15.5).
+#
+# 120 clean base episodes (60/family from the ``test`` split) × 1
+# method (V1R1) = 120 rows. No corruption, no interventions — this is
+# the reference "the closed loop solves the core task" measurement.
+run_id: v1r1_clean
+method: V1R1
+condition: clean
+manifests_dir: data/manifests
+output_dir: runs/v1r1_clean
+splits:
+  - test
+notes: |
+  Expected rows: 120 (60 goto + 60 keydoor). Success ceiling on clean
+  runs is the reference for RQ1 corruption / RQ2 intervention deltas.
