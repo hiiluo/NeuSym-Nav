@@ -13,3 +13,28 @@ splits:
   dev:
     combo_start: 10
     combo_count: 20
+  # A-06/A-07 RQ2 intervention split. Combos disjoint from smoke/dev
+  # (goto starts at 40, key-door at 32) so layout hashes remain unique
+  # across the whole matrix and manifest_hashes.json covers every row
+  # the frozen runner consumes.
+  rq2_test:
+    interventions: true
+    combos:
+      goto_type_color:
+        start: 40
+        count: 40
+      key_door_goal:
+        start: 32
+        count: 40
+  # A-07 final clean test pool. RQ1 (N1 corruption sweep), B3 test and
+  # V1R1 clean all evaluate this same 120-episode pool with different
+  # runtime methods/conditions — plan §15.5 counts each of the three
+  # suites as 120 rows because the base episodes are shared.
+  test:
+    combos:
+      goto_type_color:
+        start: 80
+        count: 60
+      key_door_goal:
+        start: 72
+        count: 60
