@@ -86,6 +86,8 @@ class FrontierExplorer:
             self.register(location_id, step)
         candidates = tuple(
             FrontierCandidate(
+                # Need further checking because 0 may mean no plan,
+                # but we want to include it in the candidates. Really?
                 location_id=location_id,
                 plan_length=plan_lengths.get(location_id, 0),
                 discovered_step=self._discovered_step[location_id],

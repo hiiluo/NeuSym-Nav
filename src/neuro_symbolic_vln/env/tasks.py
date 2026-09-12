@@ -68,6 +68,7 @@ class GoToGoalProbeEnv(MiniGridEnv):
         agent_pos: tuple[int, int] = (1, 1),
         agent_dir: int = 0,
         distractor: bool = True,
+        distractor_pos: tuple[int, int] = (2, 2),
     ) -> None:
         self._target_type = target_type
         self._target_color = target_color
@@ -75,6 +76,7 @@ class GoToGoalProbeEnv(MiniGridEnv):
         self._agent_init_pos = agent_pos
         self._agent_init_dir = agent_dir
         self._distractor = distractor
+        self._distractor_pos = distractor_pos
         super().__init__(
             mission_space=MissionSpace(
                 mission_func=lambda: f"go to the {target_color} {target_type}"
@@ -96,7 +98,7 @@ class GoToGoalProbeEnv(MiniGridEnv):
         else:
             self.put_obj(Box(self._target_color), *self._target_pos)
         if self._distractor:
-            self.put_obj(Box("yellow"), 2, 2)
+            self.put_obj(Box("yellow"), *self._distractor_pos)
         self.mission = f"go to the {self._target_color} {self._target_type}"
 
 
@@ -107,6 +109,7 @@ def make_goto_goal_probe_env(
     agent_pos: tuple[int, int] = (1, 1),
     agent_dir: int = 0,
     distractor: bool = True,
+    distractor_pos: tuple[int, int] = (2, 2),
 ) -> GoToGoalProbeEnv:
     return GoToGoalProbeEnv(
         target_type=target_type,
@@ -115,4 +118,5 @@ def make_goto_goal_probe_env(
         agent_pos=agent_pos,
         agent_dir=agent_dir,
         distractor=distractor,
+        distractor_pos=distractor_pos,
     )
