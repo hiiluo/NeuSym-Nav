@@ -1,0 +1,48 @@
+# A-07 frozen expected-row matrix (plan §15.5 + §16.2).
+#
+# ``ns-vln validate-results --runs runs/final --expected-config
+#  reports/expected_rows.yaml`` reads this file and refuses to pass
+# unless every listed run_id produced the recorded row count (and, when
+# present, the same config_hash).
+#
+# Row totals with the frozen manifests (260 unique episodes = smoke 20
+# + dev 40 + rq2_test 80 + test 120) plus per-suite crossings:
+#
+#   b3_test       120 =  60/family × 2 × 1 method
+#   rq1_test      720 =  60/family × 2 × (3 N1 conditions × 2 methods)
+#   rq2_test      160 =  40/family × 2 × 2 methods
+#   v1r1_clean    120 =  60/family × 2 × 1 method
+#   -------------------------------------------------
+#   TOTAL       1,120 rows  (plan §15.5)
+#
+# Smoke (Gate G1) is intentionally excluded: it still runs via the
+# legacy CLI path (configs/smoke.yaml) and its 20-row contract lives
+# in that file, not in the frozen final matrix.
+expected_rows:
+  b3_test:
+    method: B3
+    row_count: 120
+    source_config: configs/b3_test.yaml
+  rq1_test:
+    method: matrix
+    row_count: 720
+    source_config: configs/rq1_test.yaml
+    notes: |
+      6 crossings × 120 base = 720. Crossings tag each row with an N1
+      condition; the corruption channel becomes non-trivial once A-J03
+      wires N1 into the perception path.
+  rq2_test:
+    method: matrix
+    row_count: 160
+    source_config: configs/rq2_test.yaml
+    notes: |
+      2 recovery methods × 80 base. Recovery denominator per crossing
+      equals 80 because every intervention is oracle-confirmed
+      recoverable (see manifests_rq2.yaml).
+  v1r1_clean:
+    method: V1R1
+    row_count: 120
+    source_config: configs/v1r1_clean.yaml
+totals:
+  frozen_rows: 1120
+  final_matrix_target: 1120
