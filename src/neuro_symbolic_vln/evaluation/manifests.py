@@ -24,10 +24,23 @@ SCHEMA_VERSION = "1.0"
 # (off the blocked corridor) so post-intervention states stay solvable.
 _GOTO_COLORS = ("green", "blue", "purple", "yellow", "red")
 _GOTO_TARGET_POSITIONS = ((3, 1), (4, 2))
-_GOTO_DISTRACTOR_POSITIONS = ((2, 2), (3, 3))
+# combo // 40 selects the distractor slot. Slots 0-1 are the historical
+# smoke/dev/rq2_test choices (do not reorder). Slots 2-3 extend the
+# combo space to ~160 goto layouts for the final RQ1/B3/V1R1-clean pool.
+_GOTO_DISTRACTOR_POSITIONS = ((2, 2), (3, 3), (1, 3), (4, 3))
 _KEYDOOR_DISTRACTOR_COLORS = ("blue", "green", "purple", "yellow")
 _DISTRACTOR_POSITIONS = ((1, 3), (2, 2), (4, 3), (4, 2), (3, 3))
-_SPLIT_SEED_BASE = {"smoke": 10_000, "dev": 20_000}
+# Extended keydoor slots (variant >= 21). Positions here are disjoint
+# from ``_DISTRACTOR_POSITIONS`` so every (color, position) pair remains
+# globally unique — the generator still verifies via layout_hash.
+_DISTRACTOR_POSITIONS_EXTENDED = ((1, 2), (2, 3), (3, 2))
+_SPLIT_SEED_BASE = {
+    "smoke": 10_000,
+    "dev": 20_000,
+    "rq1_test": 40_000,
+    "b3_test": 50_000,
+    "v1r1_clean": 60_000,
+}
 
 # Fixed RQ2 intervention design (plan §13.2).
 _BLOCK_TARGET = (2, 1)
@@ -192,14 +205,27 @@ def _layouts_for_combo(combo: int) -> tuple[_Layout, _Layout]:
         },
     )
 
-    variant = (combo // 4) % 21
+    # Legacy formula (variant 0-20) covers combos 0-83 and preserves the
+    # smoke/dev/rq2_test layout hashes exactly. Variants 21-32 open the
+    # extended tier used by the final A-07 test pool; the extended
+    # positions are disjoint from the legacy ones so every (color,
+    # position) pair stays unique across the whole combo range.
+    variant = combo // 4
     if variant == 0:
         distractor_color: str | None = None
         distractor_pos = (1, 3)
-    else:
+    elif variant <= 20:
         color_index = (variant - 1) % len(_KEYDOOR_DISTRACTOR_COLORS)
         distractor_color = _KEYDOOR_DISTRACTOR_COLORS[color_index]
         distractor_pos = _DISTRACTOR_POSITIONS[(variant - 1) // 4]
+    else:
+        tier_variant = variant - 21
+        color_index = tier_variant % len(_KEYDOOR_DISTRACTOR_COLORS)
+        distractor_color = _KEYDOOR_DISTRACTOR_COLORS[color_index]
+        distractor_pos = _DISTRACTOR_POSITIONS_EXTENDED[
+            (tier_variant // len(_KEYDOOR_DISTRACTOR_COLORS))
+            % len(_DISTRACTOR_POSITIONS_EXTENDED)
+        ]
     keydoor = _Layout(
         family="key_door_goal",
         target=(4, 1),
