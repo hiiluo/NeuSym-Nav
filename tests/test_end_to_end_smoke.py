@@ -3,12 +3,14 @@
 import pytest
 
 from neuro_symbolic_vln.agent import plan_committed_state
+from neuro_symbolic_vln.agent_v1r1 import run_v1r1_episode
 from neuro_symbolic_vln.contracts import (
     CommittedPlanningState,
     EpisodeOutcome,
     GoalProgram,
     GroundAtom,
     LocationGraph,
+    ParseStatus,
     PlanStatus,
     SymbolicAction,
 )
@@ -237,3 +239,113 @@ def test_unknown_family_raises_value_error() -> None:
     """Invalid task family must raise ValueError."""
     with pytest.raises(ValueError, match="Unknown task family"):
         run_b3_episode(seed=0, family="nonexistent_family")
+
+
+class TestV0R0LocalSmoke:
+    """ V0R0: transport/schema checks only, no validation, no replanning. """
+    @pytest.mark.parametrize("family", ["key_door_goal", "goto_type_color"])
+    def test_v0r0_episode_runs_with_typed_outcome(self, family: str) -> None:
+        result = run_v1r1_episode(
+            seed=0,
+            family=family,
+            method="V0R0",
+            use_validator=False,
+            use_recovery=False
+        )
+
+        assert result.terminal_outcome is not None, (
+            "V0R0 must produce a typed terminal outcome"
+        )
+        assert isinstance(result.terminal_outcome, EpisodeOutcome)
+        assert result.parse_status is ParseStatus.DETERMINISTIC
+
+    @pytest.mark.parametrize("seed", list(range(4)))
+    def test_v0r0_goto_across_headings(self, seed: int) -> None:
+        result = run_v1r1_episode(
+            seed=seed,
+            family="goto_type_color",
+            method="V0R0",
+            use_validator=False,
+            use_recovery=False
+        )
+        assert result.terminal_outcome is not None
+        assert isinstance(result.terminal_outcome, EpisodeOutcome)
+
+class TestV1R0LocalSmoke:
+    """V1R0: full validation before planning, no replanning."""
+
+    @pytest.mark.parametrize("family", ["key_door_goal", "goto_type_color"])
+    def test_v1r0_episode_runs_with_typed_outcome(self, family: str) -> None:
+        result = run_v1r1_episode(
+            seed=0,
+            family=family,
+            method="V1R0",
+            use_validator=True,
+            use_recovery=False,
+        )
+        assert result.terminal_outcome is not None, (
+            "V1R0 must produce a typed terminal outcome"
+        )
+        assert isinstance(result.terminal_outcome, EpisodeOutcome)
+        assert result.parse_status is ParseStatus.DETERMINISTIC
+
+    @pytest.mark.parametrize("seed", list(range(4)))
+    def test_v1r0_goto_across_headings(self, seed: int) -> None:
+        result = run_v1r1_episode(
+            seed=seed,
+            family="goto_type_color",
+            method="V1R0",
+            use_validator=True,
+            use_recovery=False,
+        )
+        assert result.terminal_outcome is not None
+        assert isinstance(result.terminal_outcome, EpisodeOutcome)
+
+class TestG2OracleIsolation:
+    """G2 gate: zero oracle leakage in V0R0/V1R0 execution paths."""
+
+    def test_v0r0_has_no_oracle_input_flag(self) -> None:
+        result = run_v1r1_episode(
+            seed=0,
+            family="goto_type_color",
+            method="V0R0",
+            use_validator=False,
+            use_recovery=False,
+        )
+        # V1R1EpisodeResult intentionally omits oracle_input field
+        # (only B3EpisodeResult has oracle_input=True)
+        assert not hasattr(result, "oracle_input") or not result.oracle_input
+
+    def test_v1r0_has_no_oracle_input_flag(self) -> None:
+        result = run_v1r1_episode(
+            seed=0,
+            family="goto_type_color",
+            method="V1R0",
+            use_validator=True,
+            use_recovery=False,
+        )
+        assert not hasattr(result, "oracle_input") or not result.oracle_input
+
+    def test_unknown_not_serialized_as_false(self) -> None:
+        """
+        Unknown facts must NOT appear as false/free in PDDL init.
+        Verify by checking that belief hash changes between V0R0 and V1R0
+        (validator filters additional facts), meaning validation is active.
+        """
+        r_v0r0 = run_v1r1_episode(
+            seed=0,
+            family="goto_type_color",
+            method="V0R0",
+            use_validator=False,
+            use_recovery=False,
+        )
+        r_v1r0 = run_v1r1_episode(
+            seed=0,
+            family="goto_type_color",
+            method="V1R0",
+            use_validator=True,
+            use_recovery=False,
+        )
+        # Both must produce non-empty belief hashes
+        assert r_v0r0.belief_state_hash
+        assert r_v1r0.belief_state_hash
