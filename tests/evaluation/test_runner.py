@@ -86,33 +86,33 @@ def test_run_config_b3_produces_rows_and_summary(tmp_path: Path) -> None:
     assert report.rows_path.exists()
     assert report.summary_path.exists()
 
-    rows = [
-        json.loads(line)
-        for line in report.rows_path.read_text().splitlines()
-    ]
+    summary = json.loads(report.summary_path.read_text())
+    assert set(summary["metrics_by_method_family_condition"]) == {
+        "B3|goto_type_color|clean",
+        "B3|key_door_goal|clean",
+    }
+
+    rows = [json.loads(line) for line in report.rows_path.read_text().splitlines()]
     assert len(rows) == 4
     for row in rows:
         assert row["status"] == "ok"
+        assert row["success"] is True
         assert row["config_hash"] == report.config_hash
         assert isinstance(row["success"], bool)
+        assert row["executed_distance"] <= row["attempted_actions"]
 
 
 def test_run_config_v1r1_now_executes(tmp_path: Path) -> None:
     """V1R1 was a stub in A-07 skeleton; the full runner treats it as
     executable alongside B3 once the closed-loop wiring lands."""
     manifests_dir = _write_smoke_manifests(tmp_path)
-    config = _run_config(
-        tmp_path, manifests_dir, method="V1R1", run_id="smoke-v1r1"
-    )
+    config = _run_config(tmp_path, manifests_dir, method="V1R1", run_id="smoke-v1r1")
 
     report = run_config(config)
 
     assert report.n_executed == 4
     assert report.n_skipped == 0
-    rows = [
-        json.loads(line)
-        for line in report.rows_path.read_text().splitlines()
-    ]
+    rows = [json.loads(line) for line in report.rows_path.read_text().splitlines()]
     assert all(row["status"] == "ok" for row in rows)
     assert all(row["method"] == "V1R1" for row in rows)
 
@@ -132,27 +132,23 @@ def test_run_config_matrix_produces_row_per_crossing(tmp_path: Path) -> None:
     report = run_config(config)
 
     assert report.n_rows == 8  # 4 episodes × 2 crossings
-    rows = [
-        json.loads(line)
-        for line in report.rows_path.read_text().splitlines()
-    ]
+    rows = [json.loads(line) for line in report.rows_path.read_text().splitlines()]
     methods = {row["method"] for row in rows}
     assert methods == {"B3", "V1R1"}
     assert {row["condition"] for row in rows} == {"clean"}
+    trace_paths = tuple((tmp_path / "runs" / "traces").glob("*.jsonl"))
+    assert len(trace_paths) == 8
+    assert any(".B3.clean.jsonl" in path.name for path in trace_paths)
+    assert any(".V1R1.clean.jsonl" in path.name for path in trace_paths)
 
 
 def test_run_config_unknown_method_marks_skipped(tmp_path: Path) -> None:
     manifests_dir = _write_smoke_manifests(tmp_path)
-    config = _run_config(
-        tmp_path, manifests_dir, method="B4", run_id="smoke-b4"
-    )
+    config = _run_config(tmp_path, manifests_dir, method="B4", run_id="smoke-b4")
     report = run_config(config)
     assert report.n_executed == 0
     assert report.n_skipped == 4
-    rows = [
-        json.loads(line)
-        for line in report.rows_path.read_text().splitlines()
-    ]
+    rows = [json.loads(line) for line in report.rows_path.read_text().splitlines()]
     assert all(row["status"] == "method_unavailable" for row in rows)
 
 
