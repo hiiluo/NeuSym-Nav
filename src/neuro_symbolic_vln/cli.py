@@ -38,43 +38,55 @@ def build_parser() -> ArgumentParser:
     audit = subparsers.add_parser("audit")
     audit.add_argument("--runs", required=True, help="Path to runs directory")
     audit.add_argument(
-        "--src", default="src/neuro_symbolic_vln",
+        "--src",
+        default="src/neuro_symbolic_vln",
         help="Path to source directory for import/constructor scan",
     )
     audit.add_argument(
-        "--output", default=None,
+        "--output",
+        default=None,
         help="Path to write audit report (default: prints to stdout)",
     )
     audit.add_argument(
-        "--skip-import-scan", action="store_true",
+        "--skip-import-scan",
+        action="store_true",
         help="Skip subprocess import-graph scan",
     )
 
     summarize = subparsers.add_parser("summarize")
     summarize.add_argument("--runs", required=True, help="Path to runs directory")
     summarize.add_argument(
-        "--output", required=True, help="Output directory for reports",
+        "--output",
+        required=True,
+        help="Output directory for reports",
     )
     summarize.add_argument(
-        "--config", default=None,
+        "--config",
+        default=None,
         help="Analysis config YAML (default: configs/analysis.yaml)",
     )
 
     validate_traces = subparsers.add_parser("validate-traces")
     validate_traces.add_argument(
-        "--runs", required=True, help="Path to runs/trace directory",
+        "--runs",
+        required=True,
+        help="Path to runs/trace directory",
     )
     validate_traces.add_argument(
-        "--episodes", default=None,
+        "--episodes",
+        default=None,
         help="Path to manifest JSONL for expected episode ID validation",
     )
 
     validate_results = subparsers.add_parser("validate-results")
     validate_results.add_argument(
-        "--runs", required=True, help="Path to runs directory",
+        "--runs",
+        required=True,
+        help="Path to runs directory",
     )
     validate_results.add_argument(
-        "--expected-config", required=True,
+        "--expected-config",
+        required=True,
         help="Path to expected results config YAML",
     )
 
@@ -167,10 +179,7 @@ def _run_evaluate(args: Namespace) -> int:
                     )
                 )
         successes = sum(1 for result in results if result.task_success)
-        print(
-            f"{method} smoke: {len(results)} episodes, "
-            f"{successes} task successes"
-        )
+        print(f"{method} smoke: {len(results)} episodes, {successes} task successes")
         return 0 if successes == len(results) else 1
 
     if method != "B3":
@@ -180,13 +189,9 @@ def _run_evaluate(args: Namespace) -> int:
     results = []
     for entry in config["episodes"]:
         for seed in entry["seeds"]:
-            results.append(
-                run_b3_episode(seed=seed, family=entry["family"])
-            )
+            results.append(run_b3_episode(seed=seed, family=entry["family"]))
 
-    plans_found = sum(
-        1 for result in results if result.plan.status is PlanStatus.FOUND
-    )
+    plans_found = sum(1 for result in results if result.plan.status is PlanStatus.FOUND)
     successes = sum(1 for result in results if result.task_success)
     print(
         f"B3 smoke: {len(results)} episodes, "
@@ -196,6 +201,7 @@ def _run_evaluate(args: Namespace) -> int:
     if plans_found == len(results) and successes == len(results):
         return 0
     return 1
+
 
 def _run_validate_results(args: Namespace) -> int:
     expected_path = Path(args.expected_config)
@@ -210,6 +216,7 @@ def _run_validate_results(args: Namespace) -> int:
     for mismatch in report["mismatches"]:
         print(f"  MISMATCH {mismatch}", file=sys.stderr)
     return 0 if report["ok"] else 5
+
 
 # ---------------------------------------------------------------------------
 # B-09: audit
@@ -328,6 +335,8 @@ def _run_validate_traces(args: Namespace) -> int:
     record_count = 0
 
     for jsonl_file in sorted(runs_dir.rglob("*.jsonl")):
+        if jsonl_file.name.endswith(".rows.jsonl"):
+            continue
         for line_no, line in enumerate(jsonl_file.read_text().splitlines(), 1):
             if not line.strip():
                 continue
@@ -335,9 +344,7 @@ def _run_validate_traces(args: Namespace) -> int:
             try:
                 record = deserialize_record(line)
             except TraceSchemaError as exc:
-                violations.append(
-                    f"{jsonl_file}:{line_no}: schema error: {exc}"
-                )
+                violations.append(f"{jsonl_file}:{line_no}: schema error: {exc}")
                 continue
 
             # Scan the serialized payload, rather than only ``record``: the
@@ -351,8 +358,7 @@ def _run_validate_traces(args: Namespace) -> int:
     for episode_id, records in sorted(records_by_episode.items()):
         if records[-1].episode_outcome is None:
             violations.append(
-                f"{episode_id}: final trace record has no typed "
-                "episode_outcome"
+                f"{episode_id}: final trace record has no typed episode_outcome"
             )
     if expected_ids is not None:
         for episode_id in sorted(expected_ids - records_by_episode.keys()):

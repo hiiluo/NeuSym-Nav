@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from collections.abc import Iterator
@@ -21,6 +22,12 @@ from neuro_symbolic_vln.evaluation.metrics import (
     aggregate_metrics,
 )
 from neuro_symbolic_vln.testing import run_b3_episode
+from neuro_symbolic_vln.trace import (
+    InstructionParseRecord,
+    TraceRecord,
+    ValidationRecord,
+    serialize_record,
+)
 
 _BELIEF_METHODS: dict[str, dict[str, bool]] = {
     "V0R0": {"use_validator": False, "use_recovery": False},
@@ -135,9 +142,7 @@ def load_manifests(manifests_dir: str | Path) -> LoadedManifests:
     root = Path(manifests_dir)
     hashes_path = root / "manifest_hashes.json"
     if not hashes_path.exists():
-        raise FileNotFoundError(
-            f"missing frozen manifest index: {hashes_path}"
-        )
+        raise FileNotFoundError(f"missing frozen manifest index: {hashes_path}")
     manifest_hashes = json.loads(hashes_path.read_text())
 
     publics: list[PublicManifest] = []
@@ -216,6 +221,123 @@ def _select_publics(
         yield manifest
 
 
+def _write_traces(
+    output_dir: Path | None,
+    manifest: PublicManifest,
+    method: str,
+    config_hash: str,
+    result: Any,
+) -> None:
+    if output_dir is None:
+        return
+    traces_dir = output_dir / "traces"
+    traces_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = traces_dir / f"{manifest.episode_id}.jsonl"
+
+    parse_status = getattr(result, "parse_status", None)
+    if parse_status is not None and hasattr(parse_status, "value"):
+        status_str = str(parse_status.value)
+    else:
+        status_str = "deterministic"
+    instr_hash = hashlib.sha256(manifest.instruction.encode("utf-8")).hexdigest()
+    parse_record = InstructionParseRecord(
+        status=status_str,
+        goal_program_hash=instr_hash,
+    )
+    plan = getattr(result, "plan", None)
+    plan_status = getattr(plan, "status", None)
+    plan_status_str = (
+        (plan_status.value if hasattr(plan_status, "value") else str(plan_status))
+        if plan_status is not None
+        else None
+    )
+
+    records = []
+    traces = getattr(result, "traces", ())
+    if not traces:
+        records.append(
+            TraceRecord(
+                schema_version="1.0",
+                episode_id=manifest.episode_id,
+                method=method,
+                oracle_input=(method == "B3"),
+                step=0,
+                manifest_hash=manifest.manifest_hash(),
+                config_hash=config_hash,
+                instruction_parse=parse_record,
+                observation_id="obs-0",
+                evidence_ids=(),
+                belief_state_hash=getattr(result, "belief_state_hash", "") or "empty",
+                committed_state_hash=getattr(plan, "state_hash", "") or "empty",
+                validation=ValidationRecord((), (), ()),
+                problem_hash=getattr(plan, "problem_hash", None),
+                plan_status=plan_status_str,
+                symbolic_action=None,
+                primitive_action=None,
+                action_succeeded=False,
+                failure_reason=None,
+                monitor_decision=None,
+                replan_reason=None,
+                task_success=result.task_success,
+                episode_outcome=result.terminal_outcome,
+            )
+        )
+    else:
+        for idx, trace in enumerate(traces):
+            is_last = idx == len(traces) - 1
+            action = getattr(trace, "action", None)
+            step_result = getattr(trace, "step_result", None)
+            decision = getattr(trace, "monitor_decision", None)
+            sym_action = None
+            if action is not None:
+                sym_action = (action.name, *action.arguments)
+            records.append(
+                TraceRecord(
+                    schema_version="1.0",
+                    episode_id=manifest.episode_id,
+                    method=method,
+                    oracle_input=(method == "B3"),
+                    step=trace.step,
+                    manifest_hash=manifest.manifest_hash(),
+                    config_hash=config_hash,
+                    instruction_parse=parse_record,
+                    observation_id=f"obs-{trace.step}",
+                    evidence_ids=(),
+                    belief_state_hash=getattr(result, "belief_state_hash", "")
+                    or "empty",
+                    committed_state_hash=getattr(plan, "state_hash", "") or "empty",
+                    validation=ValidationRecord((), (), ()),
+                    problem_hash=getattr(plan, "problem_hash", None),
+                    plan_status=plan_status_str,
+                    symbolic_action=sym_action,
+                    primitive_action=getattr(trace, "primitive", None),
+                    action_succeeded=step_result.action_succeeded
+                    if step_result is not None
+                    else True,
+                    failure_reason=step_result.failure_reason
+                    if step_result is not None
+                    else None,
+                    monitor_decision=decision.reason_code
+                    if decision is not None
+                    else None,
+                    replan_reason=(
+                        decision.reason_code
+                        if decision is not None
+                        and getattr(decision, "requires_replan", False)
+                        else None
+                    ),
+                    task_success=result.task_success
+                    if is_last
+                    else (
+                        step_result.task_success if step_result is not None else False
+                    ),
+                    episode_outcome=result.terminal_outcome if is_last else None,
+                )
+            )
+
+    trace_path.write_text("\n".join(serialize_record(r) for r in records) + "\n")
+
+
 def _run_b3_row(
     *,
     run_id: str,
@@ -224,6 +346,7 @@ def _run_b3_row(
     manifest: PublicManifest,
     sidecar: EvaluationSidecar,
     config_hash: str,
+    output_dir: Path | None = None,
 ) -> RunRow:
     started = time.perf_counter()
     result = run_b3_episode(seed=manifest.seed, family=manifest.family)
@@ -235,6 +358,7 @@ def _run_b3_row(
         for trace in result.traces
         if trace.step_result is not None and not trace.step_result.action_succeeded
     )
+    _write_traces(output_dir, manifest, method, config_hash, result)
     intervention_dict = sidecar.intervention or {}
     return RunRow(
         run_id=run_id,
@@ -276,6 +400,7 @@ def _run_belief_row(
     manifest: PublicManifest,
     sidecar: EvaluationSidecar,
     config_hash: str,
+    output_dir: Path | None = None,
 ) -> RunRow:
     flags = _BELIEF_METHODS[method]
     intervention = InterventionSpec.from_sidecar(sidecar.intervention)
@@ -294,9 +419,9 @@ def _run_belief_row(
     invalid = sum(
         1
         for trace in result.traces
-        if trace.step_result is not None
-        and not trace.step_result.action_succeeded
+        if trace.step_result is not None and not trace.step_result.action_succeeded
     )
+    _write_traces(output_dir, manifest, method, config_hash, result)
     intervention_dict = sidecar.intervention or {}
     return RunRow(
         run_id=run_id,
@@ -380,6 +505,7 @@ def _run_row(
     manifest: PublicManifest,
     sidecar: EvaluationSidecar,
     config_hash: str,
+    output_dir: Path | None = None,
 ) -> RunRow:
     if method == "B3":
         return _run_b3_row(
@@ -389,6 +515,7 @@ def _run_row(
             manifest=manifest,
             sidecar=sidecar,
             config_hash=config_hash,
+            output_dir=output_dir,
         )
     if method in _BELIEF_METHODS:
         return _run_belief_row(
@@ -398,6 +525,7 @@ def _run_row(
             manifest=manifest,
             sidecar=sidecar,
             config_hash=config_hash,
+            output_dir=output_dir,
         )
     return _skip_row(
         run_id=run_id,
@@ -491,6 +619,7 @@ def run_config(
                 manifest=manifest,
                 sidecar=sidecar,
                 config_hash=config_hash,
+                output_dir=output_dir,
             )
             rows.append(row)
             if row.status == "ok":
@@ -499,9 +628,7 @@ def run_config(
                 n_skipped += 1
 
     if not rows:
-        raise ValueError(
-            f"run {run_id} produced zero rows — check splits/families"
-        )
+        raise ValueError(f"run {run_id} produced zero rows — check splits/families")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     rows_path = output_dir / f"{run_id}.rows.jsonl"
@@ -514,17 +641,13 @@ def run_config(
         + "\n"
     )
 
-    executed_dicts = [
-        row.to_dict() for row in rows if row.status == "ok"
-    ]
+    executed_dicts = [row.to_dict() for row in rows if row.status == "ok"]
     summary = aggregate_metrics(executed_dicts) if executed_dicts else None
     method_label = crossings[0][0] if len(crossings) == 1 else "matrix"
     summary_payload = {
         "run_id": run_id,
         "method": method_label,
-        "crossings": [
-            {"method": m, "condition": c} for m, c in crossings
-        ],
+        "crossings": [{"method": m, "condition": c} for m, c in crossings],
         "config_hash": config_hash,
         "schema_version": SCHEMA_VERSION,
         "n_rows": len(rows),
@@ -581,9 +704,7 @@ def validate_results(
         expected_rows = int(spec["row_count"])
         total_expected += expected_rows
         if not summary_path.exists() or not rows_path.exists():
-            mismatches.append(
-                {"run_id": run_id, "reason": "artifacts_missing"}
-            )
+            mismatches.append({"run_id": run_id, "reason": "artifacts_missing"})
             continue
         summary = json.loads(summary_path.read_text())
         actual_rows = int(summary["n_rows"])
@@ -607,10 +728,7 @@ def validate_results(
                 }
             )
         expected_config_hash = spec.get("config_hash_expected")
-        if (
-            expected_config_hash
-            and summary["config_hash"] != expected_config_hash
-        ):
+        if expected_config_hash and summary["config_hash"] != expected_config_hash:
             mismatches.append(
                 {
                     "run_id": run_id,
