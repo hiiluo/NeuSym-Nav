@@ -106,6 +106,26 @@ def test_ordered_key_door_goal_success() -> None:
     assert not enter.terminated
 
 
+def test_toggle_open_door_reports_actuator_effect() -> None:
+    """Door state changes remain observable after it has been unlocked.
+
+    The runtime may toggle an already unlocked door while recovering from an
+    N2 relock.  ``is_locked`` alone cannot distinguish this successful close
+    from a no-op, so the adapter contract must include ``is_open`` too.
+    """
+    adapter = _make_adapter()
+    adapter.reset(seed=0)
+
+    assert adapter.step(PrimitiveAction("pickup")).action_succeeded
+    assert adapter.step(PrimitiveAction("move_forward")).action_succeeded
+    assert adapter.step(PrimitiveAction("toggle")).action_succeeded
+
+    close = adapter.step(PrimitiveAction("toggle"))
+
+    assert close.action_succeeded
+    assert close.failure_reason is None
+
+
 def test_blocked_forward_reports_failure() -> None:
     adapter = _make_adapter()
     adapter.reset(seed=0)
