@@ -1,0 +1,39 @@
+# V1R1 diagnostic configuration (Gate G3).
+# Covers: clean episodes, N1 corruption, N2 interventions.
+run_id: diagnostic
+method: V1R1
+condition: diagnostic
+manifests_dir: data/manifests
+output_dir: runs/diagnostic
+splits:
+  - test
+diagnostics:
+  - name: clean
+    corruption: null
+    intervention: null
+  - name: n1_drop_15
+    corruption:
+      type: drop
+      rate: 0.15
+      seed: 42
+    intervention: null
+  - name: n1_flip_10
+    corruption:
+      type: flip
+      rate: 0.10
+      seed: 42
+    intervention: null
+  - name: n2_block
+    corruption: null
+    intervention:
+      type: block
+  - name: n2_relock
+    corruption: null
+    intervention:
+      type: relock
+notes: |
+  Diagnostic matrix exercises V1R1 closed loop under:
+  - Clean (baseline reference)
+  - N1-DROP-15 / N1-FLIP-10 (evidence corruption)
+  - N2-BLOCK / N2-RELOCK (world interventions)
+  All outcomes must be typed; replan/loop bounds must hold.
