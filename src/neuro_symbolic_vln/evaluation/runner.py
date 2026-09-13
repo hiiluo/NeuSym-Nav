@@ -1,25 +1,35 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
+import platform
+import sys
 import time
+from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from neuro_symbolic_vln.agent_v1r1 import run_v1r1_episode
 from neuro_symbolic_vln.contracts import PlanStatus
+from neuro_symbolic_vln.env.verifier import GoToVerifier
 from neuro_symbolic_vln.evaluation.interventions import InterventionSpec
 from neuro_symbolic_vln.evaluation.manifests import (
     SCHEMA_VERSION,
     EvaluationSidecar,
     PublicManifest,
+    instantiate_evaluator_episode,
     stable_hash,
 )
 from neuro_symbolic_vln.evaluation.metrics import (
     MetricSummary,
     aggregate_metrics,
+    grid_spl,
+    sope,
 )
 from neuro_symbolic_vln.testing import run_b3_episode
 from neuro_symbolic_vln.trace import (
@@ -97,9 +107,10 @@ class RunRow:
     notes: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "run_id": self.run_id,
             "method": self.method,
+            "oracle_input": self.method == "B3",
             "condition": self.condition,
             "episode_id": self.episode_id,
             "family": self.family,
@@ -122,6 +133,35 @@ class RunRow:
             "runtime_ms": self.runtime_ms,
             "notes": self.notes,
         }
+        payload.update(
+            {
+                "episode_outcome": self.terminal_outcome,
+                "grid_spl": (
+                    grid_spl(
+                        self.success,
+                        self.optimal_distance,
+                        self.executed_distance,
+                    )
+                    if self.family == "goto_type_color"
+                    else None
+                ),
+                "sope": (
+                    sope(
+                        self.success,
+                        self.optimal_actions,
+                        self.attempted_actions,
+                    )
+                    if self.family == "key_door_goal"
+                    else None
+                ),
+                "primitive_actions": self.attempted_actions,
+                "replans": self.replan_count,
+                "recovery_success": bool(
+                    self.intervention and self.recoverable and self.success
+                ),
+            }
+        )
+        return payload
 
 
 @dataclass(frozen=True)
@@ -225,6 +265,7 @@ def _write_traces(
     output_dir: Path | None,
     manifest: PublicManifest,
     method: str,
+    condition: str,
     config_hash: str,
     result: Any,
 ) -> None:
@@ -232,7 +273,10 @@ def _write_traces(
         return
     traces_dir = output_dir / "traces"
     traces_dir.mkdir(parents=True, exist_ok=True)
-    trace_path = traces_dir / f"{manifest.episode_id}.jsonl"
+    # One manifest is evaluated under multiple method/condition crossings.
+    # Include the complete crossing key so later rows never overwrite an
+    # earlier trace for the same episode.
+    trace_path = traces_dir / f"{manifest.episode_id}.{method}.{condition}.jsonl"
 
     parse_status = getattr(result, "parse_status", None)
     if parse_status is not None and hasattr(parse_status, "value"):
@@ -349,16 +393,34 @@ def _run_b3_row(
     output_dir: Path | None = None,
 ) -> RunRow:
     started = time.perf_counter()
-    result = run_b3_episode(seed=manifest.seed, family=manifest.family)
+    evaluator_episode = instantiate_evaluator_episode(manifest)
+    verifier = GoToVerifier(
+        target_position=evaluator_episode.target_position,
+        env=evaluator_episode.env,
+    )
+    result = run_b3_episode(
+        seed=manifest.seed,
+        family=manifest.family,
+        episode=manifest.to_episode_spec(),
+        env=evaluator_episode.env,
+        verifier=verifier,
+    )
     runtime_ms = (time.perf_counter() - started) * 1000.0
 
     attempted = result.step_count
+    executed_distance = sum(
+        1
+        for trace in result.traces
+        if trace.primitive == "move_forward"
+        and trace.step_result is not None
+        and trace.step_result.action_succeeded
+    )
     invalid = sum(
         1
         for trace in result.traces
         if trace.step_result is not None and not trace.step_result.action_succeeded
     )
-    _write_traces(output_dir, manifest, method, config_hash, result)
+    _write_traces(output_dir, manifest, method, condition, config_hash, result)
     intervention_dict = sidecar.intervention or {}
     return RunRow(
         run_id=run_id,
@@ -373,7 +435,7 @@ def _run_b3_row(
         status="ok",
         success=result.task_success,
         optimal_distance=sidecar.optimal_grid_distance or 0,
-        executed_distance=attempted,
+        executed_distance=executed_distance,
         optimal_actions=sidecar.optimal_primitive_actions or 0,
         attempted_actions=attempted,
         invalid_actions=invalid,
@@ -404,7 +466,24 @@ def _run_belief_row(
 ) -> RunRow:
     flags = _BELIEF_METHODS[method]
     intervention = InterventionSpec.from_sidecar(sidecar.intervention)
+    evidence_transform = None
+    if condition != "clean" and condition.startswith("N1-"):
+        from neuro_symbolic_vln.evaluation.corruption import apply_corruption
+
+        def _transform_evidence(evidence: tuple[Any, ...]) -> tuple[Any, ...]:
+            corrupted, _hidden_labels = apply_corruption(
+                evidence, condition=condition, seed=manifest.seed
+            )
+            return corrupted
+
+        evidence_transform = _transform_evidence
+
     started = time.perf_counter()
+    evaluator_episode = instantiate_evaluator_episode(manifest)
+    verifier = GoToVerifier(
+        target_position=evaluator_episode.target_position,
+        env=evaluator_episode.env,
+    )
     result = run_v1r1_episode(
         seed=manifest.seed,
         family=manifest.family,
@@ -412,16 +491,27 @@ def _run_belief_row(
         intervention=intervention,
         use_validator=flags["use_validator"],
         use_recovery=flags["use_recovery"],
+        evidence_transform=evidence_transform,
+        episode=manifest.to_episode_spec(),
+        env=evaluator_episode.env,
+        verifier=verifier,
     )
     runtime_ms = (time.perf_counter() - started) * 1000.0
 
     attempted = result.step_count
+    executed_distance = sum(
+        1
+        for trace in result.traces
+        if trace.primitive == "move_forward"
+        and trace.step_result is not None
+        and trace.step_result.action_succeeded
+    )
     invalid = sum(
         1
         for trace in result.traces
         if trace.step_result is not None and not trace.step_result.action_succeeded
     )
-    _write_traces(output_dir, manifest, method, config_hash, result)
+    _write_traces(output_dir, manifest, method, condition, config_hash, result)
     intervention_dict = sidecar.intervention or {}
     return RunRow(
         run_id=run_id,
@@ -436,7 +526,7 @@ def _run_belief_row(
         status="ok",
         success=result.task_success,
         optimal_distance=sidecar.optimal_grid_distance or 0,
-        executed_distance=attempted,
+        executed_distance=executed_distance,
         optimal_actions=sidecar.optimal_primitive_actions or 0,
         attempted_actions=attempted,
         invalid_actions=invalid,
@@ -640,6 +730,12 @@ def run_config(
         )
         + "\n"
     )
+    _write_reproduction_artifacts(
+        output_dir=output_dir,
+        config=config,
+        manifests=selected_manifests,
+        rows=rows,
+    )
 
     executed_dicts = [row.to_dict() for row in rows if row.status == "ok"]
     summary = aggregate_metrics(executed_dicts) if executed_dicts else None
@@ -654,6 +750,7 @@ def run_config(
         "n_executed": n_executed,
         "n_skipped": n_skipped,
         "metrics": summary.to_dict() if summary is not None else None,
+        "metrics_by_method_family_condition": _grouped_metrics(executed_dicts),
     }
     summary_path.write_text(
         json.dumps(summary_payload, sort_keys=True, indent=2) + "\n"
@@ -670,6 +767,65 @@ def run_config(
         summary=summary,
         rows_path=rows_path,
         summary_path=summary_path,
+    )
+
+
+def _grouped_metrics(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Report the required method × family × condition strata (§16.1)."""
+    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[(row["method"], row["family"], row["condition"])].append(row)
+    return {
+        "|".join(key): aggregate_metrics(group).to_dict()
+        for key, group in sorted(grouped.items())
+    }
+
+
+def _write_reproduction_artifacts(
+    *,
+    output_dir: Path,
+    config: dict[str, Any],
+    manifests: list[PublicManifest],
+    rows: list[RunRow],
+) -> None:
+    """Write the reproducibility artifacts owned by the experiment runner."""
+    (output_dir / "resolved_config.yaml").write_text(
+        yaml.safe_dump(config, sort_keys=True)
+    )
+    (output_dir / "manifest_hashes.json").write_text(
+        json.dumps(
+            {item.episode_id: item.manifest_hash() for item in manifests},
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n"
+    )
+    serialized_rows = [row.to_dict() for row in rows]
+    with (output_dir / "results.csv").open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(serialized_rows[0]))
+        writer.writeheader()
+        for row in serialized_rows:
+            writer.writerow(
+                {
+                    key: (
+                        json.dumps(value, sort_keys=True)
+                        if isinstance(value, (dict, list))
+                        else value
+                    )
+                    for key, value in row.items()
+                }
+            )
+    (output_dir / "environment.json").write_text(
+        json.dumps(
+            {
+                "python": sys.version,
+                "platform": platform.platform(),
+                "implementation": platform.python_implementation(),
+            },
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n"
     )
 
 
@@ -709,6 +865,17 @@ def validate_results(
         summary = json.loads(summary_path.read_text())
         actual_rows = int(summary["n_rows"])
         total_actual += actual_rows
+        try:
+            rows = [
+                json.loads(line)
+                for line in rows_path.read_text().splitlines()
+                if line.strip()
+            ]
+        except (json.JSONDecodeError, OSError) as error:
+            mismatches.append(
+                {"run_id": run_id, "reason": "rows_invalid", "detail": str(error)}
+            )
+            continue
         if actual_rows != expected_rows:
             mismatches.append(
                 {
@@ -718,6 +885,75 @@ def validate_results(
                     "actual": actual_rows,
                 }
             )
+        if len(rows) != actual_rows:
+            mismatches.append(
+                {
+                    "run_id": run_id,
+                    "reason": "summary_row_count_mismatch",
+                    "summary": actual_rows,
+                    "actual": len(rows),
+                }
+            )
+        crossing_keys = [
+            (row.get("episode_id"), row.get("method"), row.get("condition"))
+            for row in rows
+        ]
+        if len(crossing_keys) != len(set(crossing_keys)):
+            mismatches.append(
+                {"run_id": run_id, "reason": "duplicate_episode_crossing"}
+            )
+        required_fields = {
+            "run_id",
+            "episode_id",
+            "family",
+            "condition",
+            "method",
+            "oracle_input",
+            "manifest_hash",
+            "config_hash",
+            "success",
+            "episode_outcome",
+            "grid_spl",
+            "sope",
+            "primitive_actions",
+            "invalid_actions",
+            "plan_status",
+            "recovery_success",
+            "replans",
+        }
+        for index, row in enumerate(rows):
+            missing = sorted(required_fields - row.keys())
+            if missing:
+                mismatches.append(
+                    {
+                        "run_id": run_id,
+                        "reason": "row_schema",
+                        "row": index,
+                        "missing": missing,
+                    }
+                )
+                break
+            if row["config_hash"] != summary["config_hash"]:
+                mismatches.append(
+                    {"run_id": run_id, "reason": "row_config_hash", "row": index}
+                )
+                break
+            if bool(row["oracle_input"]) != (row["method"] == "B3"):
+                mismatches.append(
+                    {"run_id": run_id, "reason": "oracle_input", "row": index}
+                )
+                break
+            trace_name = f"{row['episode_id']}.{row['method']}.{row['condition']}.jsonl"
+            if not any(root.rglob(trace_name)):
+                mismatches.append(
+                    {
+                        "run_id": run_id,
+                        "reason": "trace_missing",
+                        "row": index,
+                        "trace": trace_name,
+                    }
+                )
+                break
         if summary["method"] != spec["method"]:
             mismatches.append(
                 {

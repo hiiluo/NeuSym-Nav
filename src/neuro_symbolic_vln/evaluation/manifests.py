@@ -139,6 +139,20 @@ class GenerationResult:
 
 
 @dataclass(frozen=True)
+class EvaluatorEpisode:
+    """Evaluator-only reconstruction of a frozen public manifest.
+
+    The public manifest intentionally omits global coordinates.  The
+    evaluator can deterministically rebuild them from the generator version
+    and episode id, then pass only ``EpisodeSpec`` plus the environment-side
+    verifier across the runtime boundary.
+    """
+
+    env: Any
+    target_position: tuple[int, int]
+
+
+@dataclass(frozen=True)
 class _Layout:
     family: str
     target: tuple[int, int]
@@ -278,7 +292,6 @@ def generate_manifests(config: dict[str, Any]) -> GenerationResult:
     interventions whose post-state the oracle cannot confirm.
     """
     generator_version = str(config["generator_version"])
-    budget = int(config["public_action_budget"])
     config_hash = stable_hash(config)
     oracle = ExactOracle()
 
@@ -299,9 +312,7 @@ def generate_manifests(config: dict[str, Any]) -> GenerationResult:
                 model = model_from_probe_env(env, layout.family, layout.target)
                 solution = oracle.solve(model)
                 if not solution.solvable:
-                    raise ManifestGenerationError(
-                        f"unsolvable layout: {episode_id}"
-                    )
+                    raise ManifestGenerationError(f"unsolvable layout: {episode_id}")
                 layout_hash = stable_hash(layout.layout_payload)
                 previous = seen_layouts.get(layout_hash)
                 if previous is not None:
@@ -335,8 +346,7 @@ def generate_manifests(config: dict[str, Any]) -> GenerationResult:
                     )
                     if not annotation.recoverable:
                         raise ManifestGenerationError(
-                            f"intervention makes episode unsolvable: "
-                            f"{episode_id}"
+                            f"intervention makes episode unsolvable: {episode_id}"
                         )
                     intervention_dict = {
                         **spec.to_dict(),
@@ -355,9 +365,19 @@ def generate_manifests(config: dict[str, Any]) -> GenerationResult:
                         seed=seed_base + combo,
                         layout_hash=layout_hash,
                         instruction=layout.instruction(),
-                        task_spec=layout.task_spec,
+                        task_spec=(
+                            {
+                                "target_type": layout.task_spec["target_type"],
+                                "target_color": layout.task_spec["target_color"],
+                            }
+                            if layout.family == "goto_type_color"
+                            else {"key_color": layout.task_spec["key_color"]}
+                        ),
                         condition=None,
-                        public_action_budget=budget,
+                        public_action_budget=min(
+                            4 * int(solution.optimal_primitive_actions or 0) + 20,
+                            256,
+                        ),
                         config_hash=config_hash,
                     )
                 )
@@ -367,9 +387,7 @@ def generate_manifests(config: dict[str, Any]) -> GenerationResult:
                         episode_id=episode_id,
                         solvable=solution.solvable,
                         optimal_grid_distance=solution.optimal_grid_distance,
-                        optimal_primitive_actions=(
-                            solution.optimal_primitive_actions
-                        ),
+                        optimal_primitive_actions=(solution.optimal_primitive_actions),
                         oracle_target_entity_id=(
                             layout.task_spec["target_color"] + "-ball"
                             if layout.family == "goto_type_color"
@@ -381,17 +399,46 @@ def generate_manifests(config: dict[str, Any]) -> GenerationResult:
     return GenerationResult(tuple(publics), tuple(sidecars))
 
 
+def instantiate_evaluator_episode(manifest: PublicManifest) -> EvaluatorEpisode:
+    """Rebuild the exact frozen layout without exposing its coordinates.
+
+    This function is evaluator-only.  It also verifies that the reconstructed
+    layout matches the public ``layout_hash`` so a generator/version drift
+    cannot silently change what a result row executes.
+    """
+    if manifest.generator_version != "minigrid-core-v1":
+        raise ManifestGenerationError(
+            f"unsupported generator version: {manifest.generator_version}"
+        )
+    try:
+        combo = int(manifest.episode_id.rsplit("-", 1)[1])
+    except (IndexError, ValueError) as error:
+        raise ManifestGenerationError(
+            f"invalid generated episode id: {manifest.episode_id}"
+        ) from error
+    layouts = _layouts_for_combo(combo)
+    layout = next((item for item in layouts if item.family == manifest.family), None)
+    if layout is None:
+        raise ManifestGenerationError(f"unknown family: {manifest.family}")
+    actual_hash = stable_hash(layout.layout_payload)
+    if actual_hash != manifest.layout_hash:
+        raise ManifestGenerationError(
+            f"layout reconstruction drift for {manifest.episode_id}: "
+            f"expected {manifest.layout_hash}, got {actual_hash}"
+        )
+    if layout.instruction() != manifest.instruction:
+        raise ManifestGenerationError(
+            f"instruction/layout mismatch for {manifest.episode_id}"
+        )
+    return EvaluatorEpisode(env=layout.build_env(), target_position=layout.target)
+
+
 def _write_jsonl(path: Path, objects: list[dict[str, Any]]) -> None:
-    lines = [
-        json.dumps(obj, sort_keys=True, separators=(",", ":"))
-        for obj in objects
-    ]
+    lines = [json.dumps(obj, sort_keys=True, separators=(",", ":")) for obj in objects]
     path.write_text("\n".join(lines) + "\n")
 
 
-def write_manifests(
-    output_dir: str | Path, result: GenerationResult
-) -> dict[str, str]:
+def write_manifests(output_dir: str | Path, result: GenerationResult) -> dict[str, str]:
     """Write public JSONL + private sidecar JSONL + hash index."""
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -413,12 +460,8 @@ def write_manifests(
         _write_jsonl(sidecar_path, [s.to_dict() for s in sidecars])
         written[split] = str(public_path)
 
-    hashes = {
-        m.episode_id: m.manifest_hash() for m in result.public_manifests
-    }
+    hashes = {m.episode_id: m.manifest_hash() for m in result.public_manifests}
     hashes_path = output / "manifest_hashes.json"
-    hashes_path.write_text(
-        json.dumps(hashes, sort_keys=True, indent=2) + "\n"
-    )
+    hashes_path.write_text(json.dumps(hashes, sort_keys=True, indent=2) + "\n")
     written["manifest_hashes.json"] = str(hashes_path)
     return written
