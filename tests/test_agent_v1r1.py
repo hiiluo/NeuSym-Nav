@@ -36,6 +36,29 @@ def test_v1r1_result_carries_traces_and_belief_hash() -> None:
         assert trace.action.name
 
 
+def test_post_decode_evidence_transform_controls_belief_input() -> None:
+    """N1 hook runs after decoding and can leave the target unknown."""
+
+    def drop_targets(evidence):
+        return tuple(
+            item
+            for item in evidence
+            if item.atom.predicate not in {"target-at", "goal-at"}
+        )
+
+    result = run_v1r1_episode(
+        seed=0,
+        family="goto_type_color",
+        method="V0R0",
+        use_validator=False,
+        use_recovery=False,
+        evidence_transform=drop_targets,
+    )
+
+    assert not result.task_success
+    assert result.terminal_outcome is EpisodeOutcome.KNOWN_SPACE_DISCONNECTED
+
+
 def test_v1r1_recovers_from_block_intervention_where_v1r0_fails() -> None:
     """Recovery ablation: V1R0 has to fail on the RQ2 block; V1R1 must
     route around it. Confirms the runner's V1R0 vs V1R1 differential
