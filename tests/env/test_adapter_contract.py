@@ -47,9 +47,7 @@ def test_local_view_marks_unseen_cells() -> None:
     observation = adapter.reset(seed=0)
 
     cells = [
-        cell
-        for column in observation.categorical_view.cells_by_x
-        for cell in column
+        cell for column in observation.categorical_view.cells_by_x for cell in column
     ]
     assert any(cell.visible for cell in cells)
     assert any(not cell.visible for cell in cells)
