@@ -146,8 +146,32 @@ def _run_evaluate(args: Namespace) -> int:
             return 4  # Loud: method unavailable, artifacts still written.
         return 0
 
-    # Legacy B3 smoke path (configs/smoke.yaml).
+    # Legacy smoke path (configs/smoke.yaml).
     method = args.method or config.get("method")
+
+    if method in ("V0R0", "V1R0"):
+        from neuro_symbolic_vln.agent_v1r1 import run_v1r1_episode
+
+        use_validator = method == "V1R0"
+        results: list[Any] = []
+        for entry in config["episodes"]:
+            for seed in entry["seeds"]:
+                results.append(
+                    run_v1r1_episode(
+                        seed=seed,
+                        family=entry["family"],
+                        method=method,
+                        use_validator=use_validator,
+                        use_recovery=False,
+                    )
+                )
+        successes = sum(1 for result in results if result.task_success)
+        print(
+            f"{method} smoke: {len(results)} episodes, "
+            f"{successes} task successes"
+        )
+        return 0 if successes == len(results) else 1
+
     if method != "B3":
         print(f"unsupported method: {method}", file=sys.stderr)
         return 2
