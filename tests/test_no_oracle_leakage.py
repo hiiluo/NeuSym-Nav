@@ -22,8 +22,26 @@ def test_normal_agent_import_graph_excludes_oracle() -> None:
     )
     assert result.returncode == 0, result.stderr
 
+
+def test_v1r1_agent_import_graph_excludes_evaluator() -> None:
+    """V1R1's normal import path must not load oracle/evaluator modules."""
+    code = (
+        "import sys\n"
+        "import neuro_symbolic_vln.agent_v1r1\n"
+        "bad = [\n"
+        "    name for name in sys.modules\n"
+        "    if name.startswith('neuro_symbolic_vln.evaluation')\n"
+        "]\n"
+        "assert not bad, f'leaked evaluation modules: {bad}'\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_belief_pipeline_import_graph_excludes_oracle() -> None:
-    """ B-J02: Belief pipeline imports must not pull in evaluation modules. """
+    """B-J02: Belief pipeline imports must not pull in evaluation modules."""
     code = (
         "import sys\n"
         "import neuro_symbolic_vln.belief.state\n"
@@ -45,8 +63,9 @@ def test_belief_pipeline_import_graph_excludes_oracle() -> None:
 
     assert result.returncode == 0, result.stderr
 
+
 def test_v1r1_runtime_has_no_oracle_constructor_field() -> None:
-    """ B-J02: _V1R1EpisodeRuntime must not store oracle state or sidecar. """
+    """B-J02: _V1R1EpisodeRuntime must not store oracle state or sidecar."""
     from neuro_symbolic_vln.agent_v1r1 import _V1R1EpisodeRuntime
     from neuro_symbolic_vln.contracts import EpisodeSpec
 
@@ -55,7 +74,7 @@ def test_v1r1_runtime_has_no_oracle_constructor_field() -> None:
         family="goto_type_color",
         instruction="go to the green ball",
         public_action_budget=32,
-        manifest_hash="test"
+        manifest_hash="test",
     )
 
     runtime = _V1R1EpisodeRuntime(episode, "goto_type_color")
@@ -68,8 +87,9 @@ def test_v1r1_runtime_has_no_oracle_constructor_field() -> None:
             attr_name.lower().startswith(prefix) for prefix in forbidden_prefixes
         ), f"Runtime has forbidden attribute: {attr_name}"
 
+
 def test_v0r0_episode_traces_oracle_input_false() -> None:
-    """ B-J02: V0R0 episodes must record oracle_input=false in all traces. """
+    """B-J02: V0R0 episodes must record oracle_input=false in all traces."""
     from neuro_symbolic_vln.agent_v1r1 import run_v1r1_episode
 
     result = run_v1r1_episode(
@@ -77,15 +97,16 @@ def test_v0r0_episode_traces_oracle_input_false() -> None:
         family="goto_type_color",
         method="V0R0",
         use_validator=False,
-        use_recovery=False
+        use_recovery=False,
     )
     # Episode result itself should not be flagged as oracle_input
     # (V1R1EpisodeResult doesn't have oracle_input field, which is correct
     # — only B3EpisodeResult has oracle_input=True)
     assert not hasattr(result, "oracle_input") or result.oracle_input is False
 
+
 def test_v1r0_episode_traces_oracle_input_false() -> None:
-    """ B-J02: V1R0 episodes must record oracle_input=false in all traces. """
+    """B-J02: V1R0 episodes must record oracle_input=false in all traces."""
     from neuro_symbolic_vln.agent_v1r1 import run_v1r1_episode
 
     result = run_v1r1_episode(
@@ -93,7 +114,7 @@ def test_v1r0_episode_traces_oracle_input_false() -> None:
         family="goto_type_color",
         method="V1R0",
         use_validator=False,
-        use_recovery=False
+        use_recovery=False,
     )
 
     assert not hasattr(result, "oracle_input") or result.oracle_input is False
