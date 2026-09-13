@@ -149,10 +149,11 @@ def _run_evaluate(args: Namespace) -> int:
     # Legacy smoke path (configs/smoke.yaml).
     method = args.method or config.get("method")
 
-    if method in ("V0R0", "V1R0"):
+    if method in ("V0R0", "V1R0", "V0R1", "V1R1"):
         from neuro_symbolic_vln.agent_v1r1 import run_v1r1_episode
 
-        use_validator = method == "V1R0"
+        use_validator = method in ("V1R0", "V1R1")
+        use_recovery = method in ("V0R1", "V1R1")
         results: list[Any] = []
         for entry in config["episodes"]:
             for seed in entry["seeds"]:
@@ -162,7 +163,7 @@ def _run_evaluate(args: Namespace) -> int:
                         family=entry["family"],
                         method=method,
                         use_validator=use_validator,
-                        use_recovery=False,
+                        use_recovery=use_recovery,
                     )
                 )
         successes = sum(1 for result in results if result.task_success)
@@ -306,12 +307,13 @@ def _run_summarize(args: Namespace) -> int:
 
 
 def _run_validate_traces(args: Namespace) -> int:
-    import json
-
-    from neuro_symbolic_vln.evaluation.statistics import validate_trace_completeness
+    from neuro_symbolic_vln.trace import (
+        TraceSchemaError,
+        deserialize_record,
+        scan_record_for_leakage,
+    )
 
     runs_dir = Path(args.runs)
-
     expected_ids: set[str] | None = None
     if args.episodes:
         episodes_path = Path(args.episodes)
@@ -321,20 +323,46 @@ def _run_validate_traces(args: Namespace) -> int:
                 data = json.loads(line)
                 expected_ids.add(data["episode_id"])
 
-    report = validate_trace_completeness(runs_dir, expected_ids)
+    violations: list[str] = []
+    records_by_episode: dict[str, list[Any]] = {}
+    record_count = 0
 
-    if report.ok:
-        print("Trace validation: PASS — all traces complete with typed outcomes")
+    for jsonl_file in sorted(runs_dir.rglob("*.jsonl")):
+        for line_no, line in enumerate(jsonl_file.read_text().splitlines(), 1):
+            if not line.strip():
+                continue
+            record_count += 1
+            try:
+                record = deserialize_record(line)
+            except TraceSchemaError as exc:
+                violations.append(
+                    f"{jsonl_file}:{line_no}: schema error: {exc}"
+                )
+                continue
+
+            # Scan the serialized payload, rather than only ``record``: the
+            # schema intentionally permits forward-compatible extra fields,
+            # so constructing TraceRecord would otherwise discard a leaked
+            # private field before it can be reported.
+            for leak in scan_record_for_leakage(line):
+                violations.append(f"{jsonl_file}:{line_no}: {leak}")
+            records_by_episode.setdefault(record.episode_id, []).append(record)
+
+    for episode_id, records in sorted(records_by_episode.items()):
+        if records[-1].episode_outcome is None:
+            violations.append(
+                f"{episode_id}: final trace record has no typed "
+                "episode_outcome"
+            )
+    if expected_ids is not None:
+        for episode_id in sorted(expected_ids - records_by_episode.keys()):
+            violations.append(f"{episode_id}: no trace records found")
+
+    print(f"validate-traces: {record_count} records scanned")
+    if not violations:
+        print("Trace validation: PASS — schema-valid, typed, no leakage")
         return 0
 
-    print("Trace validation: FAIL")
-    if report.incomplete_traces:
-        print(f"\n  Incomplete traces ({len(report.incomplete_traces)}):")
-        for issue in report.incomplete_traces:
-            print(f"    - {issue}")
-    if report.untyped_outcomes:
-        print(f"\n  Untyped outcomes ({len(report.untyped_outcomes)}):")
-        for issue in report.untyped_outcomes:
-            print(f"    - {issue}")
-
-    return 1
+    for violation in violations:
+        print(f"  VIOLATION: {violation}", file=sys.stderr)
+    return 6
