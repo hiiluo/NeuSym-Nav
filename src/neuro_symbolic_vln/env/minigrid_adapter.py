@@ -89,9 +89,7 @@ class MiniGridAdapter(EnvironmentAdapter):
         observation = self._observation()
         action_succeeded = before != after and action.name != "done"
         if self._verifier is None:
-            raise RuntimeError(
-                "MiniGridAdapter.step() requires a TaskVerifier"
-            )
+            raise RuntimeError("MiniGridAdapter.step() requires a TaskVerifier")
         task_success = self._verifier.evaluate().task_success
         return StepResult(
             observation=observation,
@@ -145,9 +143,7 @@ class MiniGridAdapter(EnvironmentAdapter):
         )
         self._observation_id += 1
         carried = self._env.unwrapped.carrying
-        carried_entity = (
-            None if carried is None else f"{carried.color}:{carried.type}"
-        )
+        carried_entity = None if carried is None else f"{carried.color}:{carried.type}"
         return ObservationPacket(
             observation_id=f"{self._episode.episode_id}:{self._observation_id}",
             step=self._step,
