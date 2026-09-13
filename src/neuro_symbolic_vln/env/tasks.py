@@ -1,6 +1,6 @@
 from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
-from minigrid.core.world_object import Door, Key
+from minigrid.core.world_object import Door, Goal, Key
 from minigrid.minigrid_env import MiniGridEnv
 
 
@@ -36,10 +36,9 @@ class LockedDoorProbeEnv(MiniGridEnv):
         self.agent_dir = self._agent_dir
         self.put_obj(Key(self._key_color), 2, 1)
         self.put_obj(Door("red", is_locked=True), 3, 1)
+        self.put_obj(Goal(), 4, 1)
         if self._distractor_key_color is not None:
-            self.put_obj(
-                Key(self._distractor_key_color), *self._distractor_key_pos
-            )
+            self.put_obj(Key(self._distractor_key_color), *self._distractor_key_pos)
         self.mission = "probe"
 
 
