@@ -15,6 +15,10 @@ from neuro_symbolic_vln.contracts import (
     SymbolicAction,
 )
 from neuro_symbolic_vln.control.controller import MiniGridController
+from neuro_symbolic_vln.evaluation.interventions import (
+    choose_block_intervention,
+    choose_relock_intervention,
+)
 from neuro_symbolic_vln.planning.location_graph import LocationGraphBuilder
 from neuro_symbolic_vln.planning.pyperplan_adapter import PlannerConfig
 from neuro_symbolic_vln.testing import B3EpisodeResult, run_b3_episode
@@ -242,7 +246,8 @@ def test_unknown_family_raises_value_error() -> None:
 
 
 class TestV0R0LocalSmoke:
-    """ V0R0: transport/schema checks only, no validation, no replanning. """
+    """V0R0: transport/schema checks only, no validation, no replanning."""
+
     @pytest.mark.parametrize("family", ["key_door_goal", "goto_type_color"])
     def test_v0r0_episode_runs_with_typed_outcome(self, family: str) -> None:
         result = run_v1r1_episode(
@@ -250,7 +255,7 @@ class TestV0R0LocalSmoke:
             family=family,
             method="V0R0",
             use_validator=False,
-            use_recovery=False
+            use_recovery=False,
         )
 
         assert result.terminal_outcome is not None, (
@@ -266,10 +271,11 @@ class TestV0R0LocalSmoke:
             family="goto_type_color",
             method="V0R0",
             use_validator=False,
-            use_recovery=False
+            use_recovery=False,
         )
         assert result.terminal_outcome is not None
         assert isinstance(result.terminal_outcome, EpisodeOutcome)
+
 
 class TestV1R0LocalSmoke:
     """V1R0: full validation before planning, no replanning."""
@@ -300,6 +306,7 @@ class TestV1R0LocalSmoke:
         )
         assert result.terminal_outcome is not None
         assert isinstance(result.terminal_outcome, EpisodeOutcome)
+
 
 class TestG2OracleIsolation:
     """G2 gate: zero oracle leakage in V0R0/V1R0 execution paths."""
@@ -349,3 +356,123 @@ class TestG2OracleIsolation:
         # Both must produce non-empty belief hashes
         assert r_v0r0.belief_state_hash
         assert r_v1r0.belief_state_hash
+
+
+# ---------------------------------------------------------------------------
+# 6. Gate G3: V1R1 Full Bounded Closed Loop Diagnostics (Task B-J03)
+# ---------------------------------------------------------------------------
+
+
+class TestV1R1DiagnosticSmoke:
+    """G3: V1R1 handles all diagnostic scenarios with typed outcomes."""
+
+    @pytest.mark.parametrize("family", ["key_door_goal", "goto_type_color"])
+    def test_v1r1_clean_typed_outcome(self, family: str) -> None:
+        """Clean V1R1 episodes must succeed with typed outcomes."""
+        result = run_v1r1_episode(seed=0, family=family)
+        assert result.task_success
+        assert result.terminal_outcome is EpisodeOutcome.SUCCESS
+
+    def test_v1r1_n2_block_recovery(self) -> None:
+        """V1R1 must recover from N2 block via bounded replan."""
+        spec = choose_block_intervention(
+            (2, 1), ((1, 2), (2, 2), (3, 2), (4, 2), (4, 1)), seed=40
+        )
+        result = run_v1r1_episode(
+            seed=40,
+            family="goto_type_color",
+            intervention=spec,
+        )
+        assert result.task_success
+        assert result.replan_count >= 1
+        assert result.replan_count <= 5  # bounded budget
+
+    def test_v1r1_n2_relock_recovery(self) -> None:
+        """V1R1 must recover from N2 relock via bounded replan."""
+        spec = choose_relock_intervention((3, 1), seed=32)
+        result = run_v1r1_episode(
+            seed=32,
+            family="key_door_goal",
+            intervention=spec,
+        )
+        assert result.task_success
+        assert result.replan_count >= 1
+        assert result.replan_count <= 5  # bounded budget
+
+    @pytest.mark.parametrize("family", ["key_door_goal", "goto_type_color"])
+    def test_v1r1_all_outcomes_typed_never_none(self, family: str) -> None:
+        """No episode may terminate with terminal_outcome=None."""
+        result = run_v1r1_episode(seed=0, family=family)
+        assert result.terminal_outcome is not None
+        assert isinstance(result.terminal_outcome, EpisodeOutcome)
+
+
+class TestV1R1BoundsEnforcement:
+    """G3: Replan/loop/action bounds must be enforced."""
+
+    def test_replan_budget_max_5(self) -> None:
+        """Replanning must be bounded at max 5 attempts."""
+        from neuro_symbolic_vln.control.monitor import ExecutionMonitor
+
+        monitor = ExecutionMonitor(max_replans=5)
+        for _ in range(5):
+            outcome = monitor.check_replan_budget()
+            assert outcome is None  # still within budget
+        outcome = monitor.check_replan_budget()
+        assert outcome is not None  # 6th attempt rejected
+
+    def test_deliberate_loop_detected(self) -> None:
+        """Third identical plan signature must trigger LOOP_DETECTED."""
+        from neuro_symbolic_vln.control.monitor import ExecutionMonitor
+
+        monitor = ExecutionMonitor()
+        sig = ("task-satisfied", "hash-1", ("loc-1", "east"), "found")
+        assert monitor.record_and_check_loop(sig) is None  # 1st
+        assert monitor.record_and_check_loop(sig) is None  # 2nd
+        outcome = monitor.record_and_check_loop(sig)  # 3rd
+        assert outcome is EpisodeOutcome.LOOP_DETECTED
+
+
+class TestV1R1TraceSchemaValidity:
+    """G3: All diagnostic traces must be schema-valid."""
+
+    def test_trace_record_has_required_fields(self) -> None:
+        """Verify TraceRecord dataclass covers all §17 required fields."""
+        import dataclasses
+
+        from neuro_symbolic_vln.trace import REQUIRED_TRACE_FIELDS, TraceRecord
+
+        record_fields = {f.name for f in dataclasses.fields(TraceRecord)}
+        missing = REQUIRED_TRACE_FIELDS - record_fields
+        assert not missing, f"TraceRecord missing required fields: {missing}"
+
+    def test_v0r0_v1r0_v1r1_trace_leakage_scan(self) -> None:
+        """Trace records for local methods must pass leakage scan."""
+        from neuro_symbolic_vln.trace import scan_record_for_leakage
+
+        for method, oracle in [
+            ("V0R0", False),
+            ("V1R0", False),
+            ("V1R1", False),
+            ("B3", True),
+        ]:
+            violations = scan_record_for_leakage(
+                {
+                    "method": method,
+                    "oracle_input": oracle,
+                }
+            )
+            assert not violations, f"{method}: {violations}"
+
+    def test_local_method_with_oracle_true_is_violation(self) -> None:
+        """V0R0/V1R0/V1R1 traces with oracle_input=True must be flagged."""
+        from neuro_symbolic_vln.trace import scan_record_for_leakage
+
+        for method in ("V0R0", "V1R0", "V1R1"):
+            violations = scan_record_for_leakage(
+                {
+                    "method": method,
+                    "oracle_input": True,
+                }
+            )
+            assert any("Oracle leakage" in v for v in violations)
