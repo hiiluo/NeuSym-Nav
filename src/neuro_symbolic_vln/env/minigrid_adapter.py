@@ -30,8 +30,8 @@ _DIRECTION_TO_HEADING = {
 class _ActuatorState:
     position: tuple[int, int]
     direction: int
-    carried: tuple[str, str, bool] | None
-    front: tuple[str, str, bool] | None
+    carried: tuple[str, str, bool, bool] | None
+    front: tuple[str, str, bool, bool] | None
 
 
 class MiniGridAdapter(EnvironmentAdapter):
@@ -117,13 +117,14 @@ class MiniGridAdapter(EnvironmentAdapter):
         return _ActuatorState(position, direction, carried, front)
 
     @staticmethod
-    def _object_state(obj: Any) -> tuple[str, str, bool] | None:
+    def _object_state(obj: Any) -> tuple[str, str, bool, bool] | None:
         if obj is None:
             return None
         return (
             str(obj.type),
             str(getattr(obj, "color", "")),
             bool(getattr(obj, "is_locked", False)),
+            bool(getattr(obj, "is_open", False)),
         )
 
     def _observation(self) -> ObservationPacket:
