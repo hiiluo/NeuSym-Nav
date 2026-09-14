@@ -182,8 +182,13 @@ def extract_oracle_committed_state(
                 else:
                     true_facts.add(GroundAtom("passable", (loc_id,)))
             elif obj.type in ("ball", "box"):
-                t_id = f"{obj.color}-{obj.type}"
-                true_facts.add(GroundAtom("target-at", (t_id, loc_id)))
+                # Oracle input may expose the full map, but goal grounding
+                # still has to respect the instruction/verifier. Distractor
+                # objects are obstacles, not alternative task targets.
+                target_position = getattr(verifier, "target_position", None)
+                if target_position is None or (x, y) == tuple(target_position):
+                    t_id = f"{obj.color}-{obj.type}"
+                    true_facts.add(GroundAtom("target-at", (t_id, loc_id)))
             elif obj.type == "goal":
                 true_facts.add(GroundAtom("target-at", ("target-goal", loc_id)))
                 true_facts.add(GroundAtom("passable", (loc_id,)))
@@ -218,30 +223,39 @@ def run_b3_episode(
     seed: int = 0,
     family: str = "key_door_goal",
     config: PlannerConfig | None = None,
+    *,
+    episode: EpisodeSpec | None = None,
+    env: Any | None = None,
+    verifier: TaskVerifier | None = None,
 ) -> B3EpisodeResult:
     """Executes a single B3 episode using oracle state and symbolic planning."""
-    episode_id = f"b3-{family}-seed-{seed}"
+    episode_id = (
+        episode.episode_id if episode is not None else f"b3-{family}-seed-{seed}"
+    )
 
     # 1. Instantiate environment and verifier by family
-    env: Any
-    if family == "key_door_goal":
-        env = make_locked_door_probe_env(agent_dir=seed % 4)
-        verifier = GoToVerifier(target_position=(4, 1), env=env)
-        instruction = "pick up the red key, open the red door, then go to the goal"
-    elif family == "goto_type_color":
-        env = make_goto_goal_probe_env(agent_dir=seed % 4)
-        verifier = GoToVerifier(target_position=(3, 1), env=env)
-        instruction = "go to the green ball."
-    else:
-        raise ValueError(f"Unknown task family for B3: {family}")
-
-    episode = EpisodeSpec(
-        episode_id=episode_id,
-        family=family,
-        instruction=instruction,
-        public_action_budget=32,
-        manifest_hash=f"manifest-{family}-{seed}",
-    )
+    if env is None:
+        if episode is not None or verifier is not None:
+            raise ValueError("episode, env and verifier must be supplied together")
+        if family == "key_door_goal":
+            env = make_locked_door_probe_env(agent_dir=seed % 4)
+            verifier = GoToVerifier(target_position=(4, 1), env=env)
+            instruction = "pick up the red key, open the red door, then go to the goal"
+        elif family == "goto_type_color":
+            env = make_goto_goal_probe_env(agent_dir=seed % 4)
+            verifier = GoToVerifier(target_position=(3, 1), env=env)
+            instruction = "go to the green ball."
+        else:
+            raise ValueError(f"Unknown task family for B3: {family}")
+        episode = EpisodeSpec(
+            episode_id=episode_id,
+            family=family,
+            instruction=instruction,
+            public_action_budget=32,
+            manifest_hash=f"manifest-{family}-{seed}",
+        )
+    elif episode is None or verifier is None:
+        raise ValueError("episode, env and verifier must be supplied together")
 
     adapter = MiniGridAdapter(env, episode, verifier)
     adapter.reset(seed=seed)

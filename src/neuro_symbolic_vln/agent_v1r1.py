@@ -27,8 +27,9 @@ sit between here and the plan §17 architecture:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from neuro_symbolic_vln.agent import (
     _episode_outcome_for_plan,
@@ -59,25 +60,24 @@ from neuro_symbolic_vln.control.controller import (
     DeadReckoningTracker,
     MiniGridController,
 )
+from neuro_symbolic_vln.control.explorer import FrontierExplorer, extract_frontiers
 from neuro_symbolic_vln.control.monitor import ExecutionMonitor, MonitorDecision
+from neuro_symbolic_vln.env.base import TaskVerifier
 from neuro_symbolic_vln.env.minigrid_adapter import MiniGridAdapter
 from neuro_symbolic_vln.env.tasks import (
     make_goto_goal_probe_env,
     make_locked_door_probe_env,
 )
 from neuro_symbolic_vln.env.verifier import GoToVerifier
-from neuro_symbolic_vln.evaluation.interventions import (
-    CHECKPOINT_POST_TOGGLE,
-    CHECKPOINT_PRE_MOVE,
-    InterventionSpec,
-    apply_intervention,
-)
 from neuro_symbolic_vln.language.template_parser import parse_instruction
 from neuro_symbolic_vln.perception.observation_decoder import (
     LocalObservationDecoder,
     SensorModelSpec,
 )
-from neuro_symbolic_vln.planning.location_graph import LocationGraphBuilder
+from neuro_symbolic_vln.planning.location_graph import (
+    LocationGraphBuilder,
+    find_shortest_path,
+)
 from neuro_symbolic_vln.planning.pyperplan_adapter import PlannerConfig
 
 _HEADING_DELTA = {
@@ -88,6 +88,11 @@ _HEADING_DELTA = {
 }
 
 _WORLD_KNOWLEDGE_SENSOR = "world-knowledge"
+_CHECKPOINT_PRE_MOVE = "pre-move-forward"
+_CHECKPOINT_POST_TOGGLE = "post-toggle"
+
+if TYPE_CHECKING:
+    from neuro_symbolic_vln.evaluation.interventions import InterventionSpec
 
 
 def _subgoals_for_family(family: str) -> tuple[GroundAtom, ...]:
@@ -108,9 +113,7 @@ def _subgoals_for_family(family: str) -> tuple[GroundAtom, ...]:
     raise ValueError(f"unknown task family for V1R1: {family}")
 
 
-def _subgoal_satisfied(
-    subgoal: GroundAtom, state: CommittedPlanningState
-) -> bool:
+def _subgoal_satisfied(subgoal: GroundAtom, state: CommittedPlanningState) -> bool:
     return subgoal in state.true_facts
 
 
@@ -138,9 +141,7 @@ class V1R1EpisodeResult:
     belief_state_hash: str
 
 
-def _make_env_and_verifier(
-    family: str, seed: int
-) -> tuple[Any, GoToVerifier, str]:
+def _make_env_and_verifier(family: str, seed: int) -> tuple[Any, GoToVerifier, str]:
     env: Any
     if family == "key_door_goal":
         env = make_locked_door_probe_env(agent_dir=seed % 4)
@@ -173,6 +174,8 @@ class _V1R1EpisodeRuntime:
         *,
         use_validator: bool = True,
         goal_target_entity: str | None = None,
+        evidence_transform: Callable[[tuple[Evidence, ...]], tuple[Evidence, ...]]
+        | None = None,
     ) -> None:
         self._episode = episode
         self._family = family
@@ -182,6 +185,7 @@ class _V1R1EpisodeRuntime:
         # planner will happily route to any target-at fact in belief
         # (distractor boxes emit target-at too — see decoder §11.4).
         self._goal_target_entity = goal_target_entity
+        self._evidence_transform = evidence_transform
         self._belief = BeliefMap()
         self._validator = StandardValidator()
         self._tracker = DeadReckoningTracker(episode.episode_id)
@@ -194,14 +198,13 @@ class _V1R1EpisodeRuntime:
         self._committed_version = 0
         self._injected_world_facts: set[GroundAtom] = set()
         self._observed_coords: set[tuple[int, int]] = set()
+        self._frontier_explorer = FrontierExplorer()
 
     @property
     def belief_state_hash(self) -> str:
         return self._belief.state_hash()
 
-    def invalidate(
-        self, atoms: tuple[GroundAtom, ...], reason: str
-    ) -> None:
+    def invalidate(self, atoms: tuple[GroundAtom, ...], reason: str) -> None:
         """Force-invalidate belief atoms flagged by the execution monitor."""
         for atom in atoms:
             self._belief.invalidate(atom, reason=reason)
@@ -210,9 +213,7 @@ class _V1R1EpisodeRuntime:
         pose_evidence = self._tracker.reset(observation)
         self._absorb_common(observation, pose_evidence)
 
-    def absorb_step(
-        self, primitive: PrimitiveAction, result: StepResult
-    ) -> None:
+    def absorb_step(self, primitive: PrimitiveAction, result: StepResult) -> None:
         pose_evidence = self._tracker.step(primitive, result)
         self._absorb_common(result.observation, pose_evidence)
 
@@ -231,6 +232,8 @@ class _V1R1EpisodeRuntime:
         #    belief so ontology / staleness / reliability checks still
         #    apply to the actual claims (plan §12.3).
         visual_evidence = self._decoder.decode(observation, self._sensor)
+        if self._evidence_transform is not None:
+            visual_evidence = self._evidence_transform(visual_evidence)
         self._record_observed_coords(visual_evidence)
         all_evidence = pose_evidence + visual_evidence
 
@@ -289,13 +292,10 @@ class _V1R1EpisodeRuntime:
         planning_facts = frozenset(
             atom
             for atom in true_facts
-            if atom.predicate != "front-cell"
-            and not self._is_distractor_target(atom)
+            if atom.predicate != "front-cell" and not self._is_distractor_target(atom)
         )
         provenance = {
-            atom: tuple(
-                sorted(records[atom].evidence_ids)
-            )
+            atom: tuple(sorted(records[atom].evidence_ids))
             if atom in records
             else (_WORLD_KNOWLEDGE_SENSOR,)
             for atom in planning_facts
@@ -336,18 +336,13 @@ class _V1R1EpisodeRuntime:
                 and "-" in atom.arguments[0]
             }
             for color in key_colors & door_colors:
-                injected.add(
-                    GroundAtom(
-                        "key-opens", (f"{color}-key", f"{color}-door")
-                    )
-                )
+                injected.add(GroundAtom("key-opens", (f"{color}-key", f"{color}-door")))
             # Also allow the held-and-then-consumed key to still open the
             # door after pickup (once key-at is gone from belief).
             held = {
                 atom.arguments[1]
                 for atom in current_facts
-                if atom.predicate == "holding"
-                and len(atom.arguments) == 2
+                if atom.predicate == "holding" and len(atom.arguments) == 2
             }
             for entity in held:
                 if entity.endswith("-key") and "-" in entity:
@@ -365,32 +360,14 @@ class _V1R1EpisodeRuntime:
                         )
         # goal-at → target-at alias so confirm-goto works for keydoor.
         for atom in current_facts:
-            if (
-                atom.predicate == "goal-at"
-                and len(atom.arguments) == 2
-            ):
+            if atom.predicate == "goal-at" and len(atom.arguments) == 2:
                 injected.add(
                     GroundAtom("target-at", ("target-goal", atom.arguments[1]))
                 )
-        # Keydoor probe env leaves the goal cell as an unmarked floor
-        # tile (see env/tasks.py::LockedDoorProbeEnv). The plan-level
-        # "goal" is task grounding, not a MiniGrid Goal object — inject
-        # target-at at the known goal coordinate so confirm-goto can fire
-        # once the door is open. World (4, 1) → local (3, 0) since the
-        # agent starts at world (1, 1).
-        if self._family == "key_door_goal":
-            goal_local = (3, 0)
-            goal_loc_id = self._tracker.location_id(goal_local)
-            injected.add(
-                GroundAtom("target-at", ("target-goal", goal_loc_id))
-            )
-            self._observed_coords.add(goal_local)
         self._injected_world_facts |= injected
         return injected
 
-    def _build_graph(
-        self, true_facts: set[GroundAtom]
-    ) -> LocationGraph:
+    def _build_graph(self, true_facts: set[GroundAtom]) -> LocationGraph:
         builder = LocationGraphBuilder()
         # Locations from observed coordinates. Every observed cell becomes
         # a node so the planner sees the whole probe env after the first
@@ -410,10 +387,7 @@ class _V1R1EpisodeRuntime:
         # block can fail because the detour cells are known-passable via
         # decoder evidence but the graph still lacks the connecting edges.
         for atom in true_facts:
-            if (
-                atom.predicate == "front-cell"
-                and len(atom.arguments) == 3
-            ):
+            if atom.predicate == "front-cell" and len(atom.arguments) == 3:
                 from_loc, heading, to_loc = atom.arguments
                 builder.add_edge(from_loc, heading, to_loc)
         # Fold in locations that only appear in atoms (e.g. via belief
@@ -424,10 +398,111 @@ class _V1R1EpisodeRuntime:
                     builder.add_node(arg)
         return builder.build()
 
+    def frontier_action(
+        self, state: CommittedPlanningState, step: int
+    ) -> tuple[SymbolicAction | None, EpisodeOutcome | None]:
+        """Select one bounded exploration action from observed topology only."""
+        robot_loc = next(
+            (
+                atom.arguments[1]
+                for atom in state.true_facts
+                if atom.predicate == "robot-at" and len(atom.arguments) == 2
+            ),
+            None,
+        )
+        heading = next(
+            (
+                atom.arguments[1]
+                for atom in state.true_facts
+                if atom.predicate == "facing" and len(atom.arguments) == 2
+            ),
+            None,
+        )
+        if robot_loc is None or heading is None:
+            return None, EpisodeOutcome.FRONTIER_EXHAUSTED
+        traversable = frozenset(
+            atom.arguments[0]
+            for atom in state.true_facts
+            if atom.predicate == "passable" and len(atom.arguments) == 1
+        )
+        frontiers = extract_frontiers(state.location_graph, traversable)
+        if not frontiers:
+            return None, EpisodeOutcome.FRONTIER_EXHAUSTED
+        plan_lengths = {
+            location_id: len(path) - 1
+            for location_id in frontiers
+            if (
+                path := find_shortest_path(state.location_graph, robot_loc, location_id)
+            )
+            is not None
+        }
+        frontier, exhaustion = self._frontier_explorer.next_frontier(
+            traversable, frontiers, plan_lengths, step
+        )
+        if frontier is None:
+            return None, exhaustion
 
-def _egocentric_to_world(
-    right: int, forward: int, heading: str
-) -> tuple[int, int]:
+        path = find_shortest_path(state.location_graph, robot_loc, frontier.location_id)
+        if path is not None and len(path) > 1:
+            next_loc = path[1]
+            directed_edges = state.location_graph.directed_edges
+            target_heading = next(
+                (
+                    edge_heading
+                    for source, edge_heading, target in directed_edges
+                    if source == robot_loc and target == next_loc
+                ),
+                None,
+            )
+            if target_heading is None:
+                return None, EpisodeOutcome.KNOWN_SPACE_DISCONNECTED
+        else:
+            headings_to_sweep = self._frontier_explorer.sweep_headings(frontier)
+            if not headings_to_sweep:
+                return None, EpisodeOutcome.FRONTIER_EXHAUSTED
+            target_heading = headings_to_sweep[0]
+
+        left_of = {
+            "north": "west",
+            "west": "south",
+            "south": "east",
+            "east": "north",
+        }
+        if heading != target_heading:
+            if left_of[heading] == target_heading:
+                self._frontier_explorer.mark_swept(
+                    frontier.location_id, (target_heading,)
+                )
+                return (
+                    SymbolicAction("turn-left", ("robot", heading, target_heading)),
+                    None,
+                )
+            right_of = {value: key for key, value in left_of.items()}
+            next_heading = right_of[heading]
+            if next_heading in frontier.unobserved_headings:
+                self._frontier_explorer.mark_swept(
+                    frontier.location_id, (next_heading,)
+                )
+            return (
+                SymbolicAction("turn-right", ("robot", heading, next_heading)),
+                None,
+            )
+        directed_edges = state.location_graph.directed_edges
+        next_loc = next(
+            (
+                target
+                for source, edge_heading, target in directed_edges
+                if source == robot_loc and edge_heading == heading
+            ),
+            robot_loc,
+        )
+        return (
+            SymbolicAction("move-forward", ("robot", robot_loc, next_loc, heading)),
+            None,
+        )
+
+
+def _egocentric_to_world(right: int, forward: int, heading: str) -> tuple[int, int]:
     """Mirror of ``observation_decoder.egocentric_delta_to_world``."""
     transforms = {
         "north": (right, -forward),
@@ -466,6 +541,11 @@ def run_v1r1_episode(
     use_validator: bool = True,
     use_recovery: bool = True,
     intervention: InterventionSpec | None = None,
+    evidence_transform: Callable[[tuple[Evidence, ...]], tuple[Evidence, ...]]
+    | None = None,
+    episode: EpisodeSpec | None = None,
+    env: Any | None = None,
+    verifier: TaskVerifier | None = None,
 ) -> V1R1EpisodeResult:
     """Execute one closed-loop episode.
 
@@ -477,15 +557,25 @@ def run_v1r1_episode(
     - ``V0R1``: no validator, bounded replan.
     - ``V0R0``: neither.
     """
-    episode_id = f"{method.lower()}-{family}-seed-{seed}"
-    env, verifier, instruction = _make_env_and_verifier(family, seed)
-    episode = EpisodeSpec(
-        episode_id=episode_id,
-        family=family,
-        instruction=instruction,
-        public_action_budget=32,
-        manifest_hash=f"manifest-{family}-{seed}",
+    episode_id = (
+        episode.episode_id
+        if episode is not None
+        else f"{method.lower()}-{family}-seed-{seed}"
     )
+    if env is None:
+        if episode is not None or verifier is not None:
+            raise ValueError("episode, env and verifier must be supplied together")
+        env, verifier, instruction = _make_env_and_verifier(family, seed)
+        episode = EpisodeSpec(
+            episode_id=episode_id,
+            family=family,
+            instruction=instruction,
+            public_action_budget=32,
+            manifest_hash=f"manifest-{family}-{seed}",
+        )
+    elif episode is None or verifier is None:
+        raise ValueError("episode, env and verifier must be supplied together")
+    instruction = episode.instruction
 
     parse_result = parse_instruction(instruction)
     traces: list[V1R1StepTrace] = []
@@ -542,6 +632,7 @@ def run_v1r1_episode(
         family,
         use_validator=use_validator,
         goal_target_entity=goal_target_entity,
+        evidence_transform=evidence_transform,
     )
     runtime.absorb_reset(initial_obs)
     monitor = ExecutionMonitor()
@@ -602,9 +693,30 @@ def run_v1r1_episode(
 
         plan = plan_committed_state(committed_state, subgoal, config=config)
         if plan.status is not PlanStatus.FOUND:
-            return episode_result(
-                terminal_outcome=_episode_outcome_for_plan(plan.status)
-            )
+            if plan.status is PlanStatus.NO_PLAN_KNOWN_SPACE and use_recovery:
+                exploration, exploration_outcome = runtime.frontier_action(
+                    committed_state, primitive_count
+                )
+                if exploration is not None:
+                    plan = PlanResult(
+                        status=PlanStatus.FOUND,
+                        actions=(exploration,),
+                        planning_time_ms=plan.planning_time_ms,
+                        state_hash=committed_state.state_hash,
+                        problem_hash=plan.problem_hash,
+                        reason="frontier exploration",
+                    )
+                else:
+                    return episode_result(
+                        terminal_outcome=(
+                            exploration_outcome
+                            or _episode_outcome_for_plan(plan.status)
+                        )
+                    )
+            else:
+                return episode_result(
+                    terminal_outcome=_episode_outcome_for_plan(plan.status)
+                )
         loop_outcome = monitor.record_and_check_loop(
             _plan_signature(committed_state, plan)
         )
@@ -618,9 +730,7 @@ def run_v1r1_episode(
                 decision = monitor.observe_action_result(
                     action,
                     action_succeeded=verification.task_success,
-                    failure_reason=getattr(
-                        verification, "reason_code", None
-                    ),
+                    failure_reason=getattr(verification, "reason_code", None),
                 )
                 if decision.atoms_to_invalidate:
                     runtime.invalidate(
@@ -647,9 +757,7 @@ def run_v1r1_episode(
             else:
                 if primitive_count >= episode.public_action_budget:
                     return episode_result(
-                        terminal_outcome=(
-                            EpisodeOutcome.ACTION_BUDGET_EXHAUSTED
-                        ),
+                        terminal_outcome=(EpisodeOutcome.ACTION_BUDGET_EXHAUSTED),
                         success=task_success,
                     )
                 # Evaluator-privileged N2 intervention fires exactly once
@@ -659,9 +767,16 @@ def run_v1r1_episode(
                     not intervention_fired
                     and intervention is not None
                     and _matches_checkpoint(
-                        intervention, action, family, toggle_seen
+                        intervention, action, family, toggle_seen, env
                     )
                 ):
+                    # Evaluator interventions are an explicit test hook. Keep
+                    # their import off the normal agent import path so oracle
+                    # modules cannot leak into local execution.
+                    from neuro_symbolic_vln.evaluation.interventions import (
+                        apply_intervention,
+                    )
+
                     apply_intervention(env, intervention)
                     intervention_fired = True
                 primitive_name = controller.to_primitive(action)
@@ -671,9 +786,7 @@ def run_v1r1_episode(
                 if action.name == "toggle-locked-door" and step_res.action_succeeded:
                     toggle_seen = True
                 runtime.absorb_step(primitive, step_res)
-                decision = monitor.observe_action_result(
-                    action, step_result=step_res
-                )
+                decision = monitor.observe_action_result(action, step_result=step_res)
                 if decision.atoms_to_invalidate:
                     runtime.invalidate(
                         decision.atoms_to_invalidate,
@@ -740,6 +853,7 @@ def _matches_checkpoint(
     action: SymbolicAction,
     family: str,
     toggle_seen: bool,
+    env: Any,
 ) -> bool:
     """Fire the intervention at the plan-defined checkpoint (§13.2).
 
@@ -749,16 +863,23 @@ def _matches_checkpoint(
       first ``move-forward`` that follows a successful door toggle, so
       the agent's crossing move discovers the re-locked door.
     """
+    if action.name != "move-forward":
+        return False
+    position = env.unwrapped.agent_pos
+    direction = int(env.unwrapped.agent_dir)
+    dx = (1, 0, -1, 0)[direction]
+    dy = (0, 1, 0, -1)[direction]
+    front_position = (int(position[0]) + dx, int(position[1]) + dy)
     if (
-        intervention.checkpoint == CHECKPOINT_PRE_MOVE
-        and action.name == "move-forward"
+        intervention.checkpoint == _CHECKPOINT_PRE_MOVE
+        and front_position == intervention.target
     ):
         return True
     if (
-        intervention.checkpoint == CHECKPOINT_POST_TOGGLE
+        intervention.checkpoint == _CHECKPOINT_POST_TOGGLE
         and family == "key_door_goal"
         and toggle_seen
-        and action.name == "move-forward"
+        and front_position == intervention.target
     ):
         return True
     return False

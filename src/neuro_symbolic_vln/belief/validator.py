@@ -33,6 +33,7 @@ PREDICATE_ARITIES: Mapping[str, int] = {
     "holding": 2,
     "key-opens": 2,
     "target-at": 2,
+    "goal-at": 2,
     "task-satisfied": 0,
 }
 

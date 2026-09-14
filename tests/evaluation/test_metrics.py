@@ -117,3 +117,37 @@ def test_aggregate_metrics_produces_summary_with_all_required_fields() -> None:
     assert summary.plan_validity == 1.0
     assert summary.recovery_denominator == 1
     assert summary.n_episodes == 2
+
+
+def test_aggregate_metrics_does_not_mix_family_specific_efficiencies() -> None:
+    rows = [
+        {
+            "family": "goto_type_color",
+            "success": True,
+            "optimal_distance": 2,
+            "executed_distance": 4,
+            "optimal_actions": 99,
+            "attempted_actions": 99,
+            "invalid_actions": 0,
+            "plan_status": "found",
+            "intervention": False,
+            "recoverable": False,
+        },
+        {
+            "family": "key_door_goal",
+            "success": True,
+            "optimal_distance": 99,
+            "executed_distance": 99,
+            "optimal_actions": 4,
+            "attempted_actions": 8,
+            "invalid_actions": 0,
+            "plan_status": "found",
+            "intervention": False,
+            "recoverable": False,
+        },
+    ]
+
+    summary = aggregate_metrics(rows)
+
+    assert summary.mean_grid_spl == 0.5
+    assert summary.mean_sope == 0.5

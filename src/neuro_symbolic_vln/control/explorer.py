@@ -84,16 +84,19 @@ class FrontierExplorer:
         """Return the next frontier to explore, or typed exhaustion."""
         for location_id in traversable:
             self.register(location_id, step)
+        remaining_by_location = {
+            location_id: headings - self._swept_headings.get(location_id, frozenset())
+            for location_id, headings in unobserved_headings.items()
+        }
         candidates = tuple(
             FrontierCandidate(
-                # Need further checking because 0 may mean no plan,
-                # but we want to include it in the candidates. Really?
                 location_id=location_id,
-                plan_length=plan_lengths.get(location_id, 0),
+                plan_length=plan_lengths[location_id],
                 discovered_step=self._discovered_step[location_id],
             )
             for location_id in traversable
-            if unobserved_headings.get(location_id, frozenset())
+            if remaining_by_location.get(location_id, frozenset())
+            and location_id in plan_lengths
         )
         if not candidates:
             return None, EpisodeOutcome.FRONTIER_EXHAUSTED
@@ -102,7 +105,7 @@ class FrontierExplorer:
             Frontier(
                 location_id=chosen.location_id,
                 unobserved_headings=frozenset(
-                    unobserved_headings[chosen.location_id]
+                    remaining_by_location[chosen.location_id]
                 ),
             ),
             None,

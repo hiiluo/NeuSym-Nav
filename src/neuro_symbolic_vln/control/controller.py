@@ -115,6 +115,7 @@ class DeadReckoningTracker:
                 pose.x, pose.y, observation.heading, pose.location_id
             )
             evidence.extend(self._heading_change_evidence(observation, pose.heading))
+            evidence.extend(self._front_cell_evidence(observation))
 
         if observation.carried_entity != self._carried:
             old_carried = self._carried
@@ -200,17 +201,25 @@ class DeadReckoningTracker:
         self, observation: ObservationPacket
     ) -> tuple[Evidence, ...]:
         pose = self._require_pose()
-        items: list[Evidence] = []
-        for heading, (dx, dy) in _HEADING_DELTA.items():
-            to_id = self.location_id((pose.x + dx, pose.y + dy))
-            items.append(
-                self._evidence(
-                    observation,
-                    GroundAtom("front-cell", (pose.location_id, heading, to_id)),
-                    True,
-                )
-            )
-        return tuple(items)
+        # The coordinate registry may allocate neighbouring IDs, but a
+        # front-cell edge is known only for the currently observed heading.
+        # This keeps unknown adjacency out of the observed topology/frontier.
+        cells = observation.categorical_view.cells_by_x
+        if len(cells) <= 3 or len(cells[3]) <= 5:
+            return ()
+        view_cell = cells[3][5]
+        if not view_cell.visible:
+            return ()
+        heading = pose.heading
+        dx, dy = _HEADING_DELTA[heading]
+        to_id = self.location_id((pose.x + dx, pose.y + dy))
+        return (
+            self._evidence(
+                observation,
+                GroundAtom("front-cell", (pose.location_id, heading, to_id)),
+                True,
+            ),
+        )
 
     def _carrying_evidence(
         self, observation: ObservationPacket, old_carried: str | None

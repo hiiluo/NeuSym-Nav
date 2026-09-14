@@ -7,9 +7,7 @@ from typing import Any
 _FOUND_PLAN_STATUS = "found"
 
 
-def grid_spl(
-    success: bool, optimal_distance: int, executed_distance: int
-) -> float:
+def grid_spl(success: bool, optimal_distance: int, executed_distance: int) -> float:
     """Success-weighted path length in grid cells (plan §16.1)."""
     if not success:
         return 0.0
@@ -25,9 +23,7 @@ def grid_spl(
     return optimal_distance / max(optimal_distance, executed_distance)
 
 
-def sope(
-    success: bool, optimal_actions: int, attempted_actions: int
-) -> float:
+def sope(success: bool, optimal_actions: int, attempted_actions: int) -> float:
     """Success-weighted primitive actions (plan §16.1)."""
     if not success:
         return 0.0
@@ -35,9 +31,7 @@ def sope(
         raise ValueError("action counts must be non-negative")
     if optimal_actions == 0:
         if attempted_actions != 0:
-            raise ValueError(
-                "optimal_actions=0 requires attempted_actions=0"
-            )
+            raise ValueError("optimal_actions=0 requires attempted_actions=0")
         return 1.0
     return optimal_actions / max(optimal_actions, attempted_actions)
 
@@ -55,9 +49,7 @@ def invalid_action_rate(attempted_actions: int, invalid_actions: int) -> float:
         raise ValueError("counts must be non-negative")
     if attempted_actions == 0:
         if invalid_actions != 0:
-            raise ValueError(
-                "attempted_actions=0 cannot have invalid_actions>0"
-            )
+            raise ValueError("attempted_actions=0 cannot have invalid_actions>0")
         return 0.0
     if invalid_actions > attempted_actions:
         raise ValueError("invalid_actions cannot exceed attempted_actions")
@@ -118,13 +110,20 @@ def aggregate_metrics(rows: Sequence[dict[str, Any]]) -> MetricSummary:
         raise ValueError("rows must be non-empty")
 
     successes = [bool(row["success"]) for row in rows]
+    goto_rows = [row for row in rows if row.get("family") == "goto_type_color"]
+    keydoor_rows = [row for row in rows if row.get("family") == "key_door_goal"]
+    # Backward-compatible fallback for direct unit callers that predate the
+    # family column. Frozen runner rows always carry it.
+    if not goto_rows and not keydoor_rows:
+        goto_rows = list(rows)
+        keydoor_rows = list(rows)
     grid_spls = [
         grid_spl(
             success=bool(row["success"]),
             optimal_distance=int(row["optimal_distance"]),
             executed_distance=int(row["executed_distance"]),
         )
-        for row in rows
+        for row in goto_rows
     ]
     sopes = [
         sope(
@@ -132,7 +131,7 @@ def aggregate_metrics(rows: Sequence[dict[str, Any]]) -> MetricSummary:
             optimal_actions=int(row["optimal_actions"]),
             attempted_actions=int(row["attempted_actions"]),
         )
-        for row in rows
+        for row in keydoor_rows
     ]
     total_attempted = sum(int(row["attempted_actions"]) for row in rows)
     total_invalid = sum(int(row["invalid_actions"]) for row in rows)
@@ -140,15 +139,13 @@ def aggregate_metrics(rows: Sequence[dict[str, Any]]) -> MetricSummary:
     recovery_success = sum(
         1
         for row in rows
-        if row.get("intervention")
-        and row.get("recoverable")
-        and bool(row["success"])
+        if row.get("intervention") and row.get("recoverable") and bool(row["success"])
     )
     return MetricSummary(
         n_episodes=len(rows),
         sr=sr(successes),
-        mean_grid_spl=sum(grid_spls) / len(grid_spls),
-        mean_sope=sum(sopes) / len(sopes),
+        mean_grid_spl=(sum(grid_spls) / len(grid_spls) if grid_spls else 0.0),
+        mean_sope=(sum(sopes) / len(sopes) if sopes else 0.0),
         invalid_action_rate=invalid_action_rate(
             attempted_actions=total_attempted,
             invalid_actions=total_invalid,

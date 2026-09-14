@@ -4,6 +4,7 @@ from neuro_symbolic_vln.contracts import EpisodeSpec
 from neuro_symbolic_vln.evaluation.manifests import (
     ManifestGenerationError,
     generate_manifests,
+    instantiate_evaluator_episode,
     stable_hash,
 )
 
@@ -47,8 +48,7 @@ def test_all_generated_episodes_are_solvable() -> None:
     assert len(result.public_manifests) == 60  # 2 families x (10 + 20)
     assert all(sidecar.solvable for sidecar in result.sidecars)
     assert all(
-        sidecar.optimal_primitive_actions is not None
-        for sidecar in result.sidecars
+        sidecar.optimal_primitive_actions is not None for sidecar in result.sidecars
     )
 
 
@@ -64,11 +64,7 @@ def test_layout_hashes_are_unique_within_a_split() -> None:
     result = generate_manifests(_config())
 
     for split in ("smoke", "dev"):
-        hashes = [
-            m.layout_hash
-            for m in result.public_manifests
-            if m.split == split
-        ]
+        hashes = [m.layout_hash for m in result.public_manifests if m.split == split]
         assert len(hashes) == len(set(hashes))
 
 
@@ -86,3 +82,34 @@ def test_episode_spec_carries_no_sidecar_fields() -> None:
     }
     assert "optimal_primitive_actions" not in spec.__dataclass_fields__
     assert "solvable" not in spec.__dataclass_fields__
+
+
+def test_public_task_spec_contains_no_layout_coordinates() -> None:
+    result = generate_manifests(_config())
+
+    for manifest in result.public_manifests:
+        serialized = manifest.to_dict()
+        assert not any(
+            key.endswith("_pos") or key.endswith("_dir")
+            for key in serialized["task_spec"]
+        )
+
+
+def test_evaluator_reconstructs_the_exact_hashed_layout() -> None:
+    result = generate_manifests(_config(smoke_count=2, dev_count=0))
+
+    for manifest in result.public_manifests:
+        reconstructed = instantiate_evaluator_episode(manifest)
+        reconstructed.env.reset(seed=manifest.seed)
+        assert reconstructed.target_position is not None
+
+    goto_manifests = [
+        manifest
+        for manifest in result.public_manifests
+        if manifest.family == "goto_type_color"
+    ]
+    first = instantiate_evaluator_episode(goto_manifests[0]).env
+    second = instantiate_evaluator_episode(goto_manifests[1]).env
+    first.reset(seed=goto_manifests[0].seed)
+    second.reset(seed=goto_manifests[1].seed)
+    assert int(first.unwrapped.agent_dir) != int(second.unwrapped.agent_dir)

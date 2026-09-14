@@ -49,12 +49,8 @@ def test_block_intervention_recoverable_via_alternate_route() -> None:
     )
     env.reset(seed=0)
 
-    pre = ExactOracle().solve(
-        model_from_probe_env(env, "goto_type_color", (3, 1))
-    )
-    spec = choose_block_intervention(
-        (2, 1), ((1, 2), (2, 2), (3, 2)), seed=0
-    )
+    pre = ExactOracle().solve(model_from_probe_env(env, "goto_type_color", (3, 1)))
+    spec = choose_block_intervention((2, 1), ((1, 2), (2, 2), (3, 2)), seed=0)
     annotation = annotate_intervention(env, "goto_type_color", (3, 1), spec, pre)
 
     assert annotation.recoverable
@@ -72,16 +68,10 @@ def test_blocking_all_approach_cells_is_unsolvable() -> None:
     env = make_locked_door_probe_env()
     env.reset(seed=0)
 
-    apply_intervention(
-        env, choose_block_intervention((3, 1), (), seed=0)
-    )
-    apply_intervention(
-        env, choose_block_intervention((4, 2), (), seed=0)
-    )
+    apply_intervention(env, choose_block_intervention((3, 1), (), seed=0))
+    apply_intervention(env, choose_block_intervention((4, 2), (), seed=0))
 
-    solution = ExactOracle().solve(
-        model_from_probe_env(env, "key_door_goal", (4, 1))
-    )
+    solution = ExactOracle().solve(model_from_probe_env(env, "key_door_goal", (4, 1)))
     assert not solution.solvable
     assert solution.optimal_primitive_actions is None
 
@@ -90,9 +80,7 @@ def test_relock_with_carried_key_is_recoverable() -> None:
     env = make_locked_door_probe_env()
     env.reset(seed=0)
 
-    pre = ExactOracle().solve(
-        model_from_probe_env(env, "key_door_goal", (4, 1))
-    )
+    pre = ExactOracle().solve(model_from_probe_env(env, "key_door_goal", (4, 1)))
     spec = choose_relock_intervention((3, 1), seed=0)
     annotation = annotate_intervention(env, "key_door_goal", (4, 1), spec, pre)
 
@@ -143,6 +131,9 @@ def test_rq2_manifests_carry_interventions_in_sidecar_only() -> None:
         assert "recoverable" not in public
         assert "target" not in public
         assert "post_optimum" not in public
+        assert "target_pos" not in public["task_spec"]
+        assert "agent_dir" not in public["task_spec"]
+        assert "distractor_pos" not in public["task_spec"]
 
     # Every sidecar holds an oracle-confirmed recoverable intervention.
     for sidecar in first.sidecars:

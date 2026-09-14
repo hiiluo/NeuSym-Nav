@@ -52,6 +52,24 @@ def test_exhaustion_returns_typed_outcome() -> None:
     assert outcome is EpisodeOutcome.FRONTIER_EXHAUSTED
 
 
+def test_unreachable_frontier_is_not_selected_as_zero_length() -> None:
+    explorer = FrontierExplorer()
+
+    frontier, outcome = explorer.next_frontier(
+        traversable=frozenset({"loc-reachable", "loc-unreachable"}),
+        unobserved_headings={
+            "loc-reachable": frozenset({"east"}),
+            "loc-unreachable": frozenset({"north"}),
+        },
+        plan_lengths={"loc-reachable": 3},
+        step=0,
+    )
+
+    assert outcome is None
+    assert frontier is not None
+    assert frontier.location_id == "loc-reachable"
+
+
 def test_one_sweep_per_frontier_visit() -> None:
     explorer = FrontierExplorer()
     frontier = Frontier(
@@ -69,6 +87,21 @@ def test_one_sweep_per_frontier_visit() -> None:
         unobserved_headings=frozenset({"north", "east", "south"}),
     )
     assert explorer.sweep_headings(changed) == ("south",)
+
+
+def test_swept_only_frontier_is_exhausted_until_state_changes() -> None:
+    explorer = FrontierExplorer()
+    explorer.mark_swept("loc-1", ("east",))
+
+    frontier, outcome = explorer.next_frontier(
+        traversable=frozenset({"loc-1"}),
+        unobserved_headings={"loc-1": frozenset({"east"})},
+        plan_lengths={"loc-1": 0},
+        step=1,
+    )
+
+    assert frontier is None
+    assert outcome is EpisodeOutcome.FRONTIER_EXHAUSTED
 
 
 def test_discovery_step_is_stable_across_calls() -> None:
@@ -104,16 +137,12 @@ def test_initially_unseen_target_becomes_known_after_sweep() -> None:
     explorer.register("loc-2", 1)
     unobserved = {"loc-2": frozenset({"east"})}
 
-    frontier, _ = explorer.next_frontier(
-        traversable, unobserved, {"loc-2": 1}, step=1
-    )
+    frontier, _ = explorer.next_frontier(traversable, unobserved, {"loc-2": 1}, step=1)
     assert frontier is not None
     assert frontier.location_id == "loc-2"
     assert explorer._discovered_step["loc-2"] == 1
 
     # After everything is observed, exploration ends with a typed outcome.
-    frontier, outcome = explorer.next_frontier(
-        traversable, {}, {}, step=2
-    )
+    frontier, outcome = explorer.next_frontier(traversable, {}, {}, step=2)
     assert frontier is None
     assert outcome is EpisodeOutcome.FRONTIER_EXHAUSTED

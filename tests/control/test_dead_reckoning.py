@@ -31,9 +31,7 @@ def _make_packet(
     )
 
 
-def _make_result(
-    observation: ObservationPacket, action_succeeded: bool
-) -> StepResult:
+def _make_result(observation: ObservationPacket, action_succeeded: bool) -> StepResult:
     return StepResult(
         observation=observation,
         action_succeeded=action_succeeded,
@@ -182,7 +180,4 @@ def test_integration_blocked_then_successful_move() -> None:
         and e.polarity
     ]
     assert door_at
-    assert any(
-        e.atom.predicate == "door-locked" and e.polarity
-        for e in view_evidence
-    )
+    assert any(e.atom.predicate == "door-locked" and e.polarity for e in view_evidence)

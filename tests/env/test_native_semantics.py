@@ -42,8 +42,10 @@ def test_toggle_targets_front_cell() -> None:
     assert door.type == "door"
     assert door.is_open
 
-    # Space beyond the door should be empty
-    assert env.unwrapped.grid.get(4, 1) is None
+    # The task goal occupies the first cell beyond the door.
+    goal = env.unwrapped.grid.get(4, 1)
+    assert goal is not None
+    assert goal.type == "goal"
 
 
 def test_wrong_key_does_not_open_door() -> None:
