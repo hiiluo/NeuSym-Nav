@@ -22,11 +22,16 @@ if [[ -z "${output_dir}" ]]; then
 fi
 mkdir -p "${output_dir}"
 
+python_command="python3"
+if command -v python >/dev/null 2>&1; then
+    python_command="python"
+fi
+
 {
     echo "candidate_sha=${candidate_sha}"
     echo "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "os=$(uname -a)"
-    echo "python=$(python --version 2>&1 || true)"
+    echo "python=$(${python_command} --version 2>&1 || true)"
     echo "uv=$(uv --version 2>&1 || true)"
     echo "git=$(git --version 2>&1)"
     sha256sum uv.lock

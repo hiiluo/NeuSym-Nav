@@ -1,6 +1,6 @@
 # A-J04 — Member A reproduction and engineering evidence
 
-Status: **pending fresh-checkout rerun on the user-committed candidate SHA**.
+Status: **fresh checkout executed; setup blocked by local `uv` infrastructure**.
 
 This packet is intentionally evidence-first. It does not promote G4/G5 or
 choose the Habitat decision; those require the joint/B-J04 review.
@@ -12,11 +12,11 @@ The current worktree contains uncommitted Member A changes, so its current
 
 | Field | Value |
 |---|---|
-| Candidate SHA/tag | `<fill after commit>` |
+| Candidate SHA/tag | `e96b82cf64a8233b42ddbdf689e92aa923071c60` |
 | Final SHA/tag | `<fill after final CI>` |
-| Checkout path | `<fresh path outside this worktree>` |
-| Date/time (UTC) | `<fill at run>` |
-| OS / Python / uv / Git | `<fill at run>` |
+| Checkout path | `/tmp/neusym-nav-a-j04-clean` |
+| Date/time (UTC) | `2026-09-14T09:03:00Z` |
+| OS / Python / uv / Git | Recorded in `/tmp/neusym-nav-a-j04-evidence-clean/environment.txt` |
 | `uv.lock` SHA256 | `7208403d6eaaf37db7b45b7df4b32a97bdba3e4ead50e485bc759cb39982c7de` (current worktree) |
 
 ## Local engineering validation completed
@@ -49,6 +49,12 @@ worktree, captures environment identity and per-command logs, and exits
 non-zero on any failed command. It was smoke-tested in the current dirty
 worktree and correctly refused to run with exit status 2; a PASS requires a
 committed candidate checkout.
+
+The fresh checkout was actually clean at `e96b82c`, but every `uv` command
+returned exit status 1 because the system Snap wrapper refused to start while
+`snapd.apparmor` was unavailable. Therefore this is a recorded infrastructure
+deviation, not a reproduction PASS. The complete per-command logs are in
+`/tmp/neusym-nav-a-j04-evidence-clean/`.
 
 ```text
 uv sync --all-groups
