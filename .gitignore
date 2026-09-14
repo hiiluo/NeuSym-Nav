@@ -13,6 +13,10 @@ htmlcov/
 runs/
 artifacts/
 *.log
-# Track source-of-truth documentation and frozen expected-row configuration.
-# Generated report tables remain local unless explicitly reviewed for commit.
-reports/month1/
+
+docs/member_a_implementation_handbook.md
+docs/member_b_implementation_handbook.md
+docs/neuro_symbolic_vln_2d_complete_implementation_plan.md
+docs/task_b_j04_guide.md
+reports/
+
