@@ -1,4 +1,5 @@
 .claude/
+.codex/
 .env
 .env.*
 !.env.example
@@ -16,4 +17,6 @@ artifacts/
 docs/member_a_implementation_handbook.md
 docs/member_b_implementation_handbook.md
 docs/neuro_symbolic_vln_2d_complete_implementation_plan.md
+docs/task_b_j04_guide.md
 reports/
+
