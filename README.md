@@ -41,17 +41,17 @@ uv run ns-vln generate-manifests --config configs/manifests.yaml
 uv run ns-vln evaluate --config configs/smoke.yaml
 ```
 
-Declared final targets (run only when the corresponding frozen artifacts are
-available) are:
+Declared final targets (run to produce the complete 1,120-row evaluation matrix):
 
 ```bash
+uv run ns-vln evaluate --config configs/b3_test.yaml
 uv run ns-vln evaluate --config configs/rq1_test.yaml
 uv run ns-vln evaluate --config configs/rq2_test.yaml
 uv run ns-vln evaluate --config configs/v1r1_clean.yaml
 ```
 
 The generated manifest files are written under `data/manifests/`. Evaluation
-outputs are written under `runs/` (ignored by Git). The frozen final matrix is
+outputs are written under `runs/final/` (ignored by Git). The frozen final matrix is
 validated with:
 
 ```bash
@@ -61,10 +61,13 @@ uv run ns-vln validate-results \
 uv run ns-vln validate-traces --runs runs/final
 uv run ns-vln audit --runs runs/final
 uv run ns-vln summarize --runs runs/final --output reports/month1/
+uv run ns-vln audit-portability --src src/neuro_symbolic_vln
+uv run ns-vln validate-report --report reports/month1/
+uv run ns-vln validate-habitat-decision --report reports/month1/habitat_decision.yaml
 ```
 
 The final target is the declared matrix in
-`reports/expected_rows.yaml` (B3, RQ1, RQ2, and V1R1 clean). A missing,
+`reports/expected_rows.yaml` (B3, RQ1, RQ2, and V1R1 clean; 1,120 rows total). A missing,
 duplicate, unavailable, hash-mismatched, or non-replayable row is a failed
 reproduction condition and must be recorded as a typed deviation; it must not
 be silently omitted.

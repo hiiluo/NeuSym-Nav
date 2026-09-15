@@ -12,7 +12,7 @@
 # summary reports the correct denominator.
 run_id: rq2_test
 manifests_dir: data/manifests
-output_dir: runs/rq2_test
+output_dir: runs/final
 splits:
   - rq2_test
 matrix:

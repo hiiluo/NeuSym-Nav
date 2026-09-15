@@ -8,7 +8,7 @@ run_id: b3_test
 method: B3
 condition: clean
 manifests_dir: data/manifests
-output_dir: runs/b3_test
+output_dir: runs/final
 splits:
   - test
 notes: |

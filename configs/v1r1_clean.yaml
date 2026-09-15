@@ -7,7 +7,7 @@ run_id: v1r1_clean
 method: V1R1
 condition: clean
 manifests_dir: data/manifests
-output_dir: runs/v1r1_clean
+output_dir: runs/final
 splits:
   - test
 notes: |
