@@ -30,6 +30,11 @@ def build_parser() -> ArgumentParser:
     evaluate = subparsers.add_parser("evaluate")
     evaluate.add_argument("--config", required=True)
     evaluate.add_argument("--method", default=None)
+    evaluate.add_argument(
+        "--output-dir",
+        default=None,
+        help="Override output directory in config",
+    )
 
     generate = subparsers.add_parser("generate-manifests")
     generate.add_argument("--config", required=True)
@@ -90,6 +95,27 @@ def build_parser() -> ArgumentParser:
         help="Path to expected results config YAML",
     )
 
+    validate_report = subparsers.add_parser("validate-report")
+    validate_report.add_argument(
+        "--report",
+        required=True,
+        help="Path to report file or directory",
+    )
+
+    validate_habitat_decision = subparsers.add_parser("validate-habitat-decision")
+    validate_habitat_decision.add_argument(
+        "--report",
+        required=True,
+        help="Path to habitat decision YAML file",
+    )
+
+    audit_portability = subparsers.add_parser("audit-portability")
+    audit_portability.add_argument(
+        "--src",
+        default="src/neuro_symbolic_vln",
+        help="Path to source directory for portability audit",
+    )
+
     return parser
 
 
@@ -111,6 +137,12 @@ def main() -> int:
         return _run_validate_traces(args)
     if args.command == "validate-results":
         return _run_validate_results(args)
+    if args.command == "validate-report":
+        return _run_validate_report(args)
+    if args.command == "validate-habitat-decision":
+        return _run_validate_habitat_decision(args)
+    if args.command == "audit-portability":
+        return _run_audit_portability(args)
     parser.print_help()
     return 0
 
@@ -140,6 +172,8 @@ def _run_evaluate(args: Namespace) -> int:
     if "run_id" in config and "manifests_dir" in config:
         if args.method:
             config = {**config, "method": args.method}
+        if getattr(args, "output_dir", None):
+            config = {**config, "output_dir": args.output_dir}
         try:
             report = run_config(config)
         except (ManifestHashMismatchError, ConfigHashMismatchError) as exc:
@@ -372,3 +406,52 @@ def _run_validate_traces(args: Namespace) -> int:
     for violation in violations:
         print(f"  VIOLATION: {violation}", file=sys.stderr)
     return 6
+
+
+# ---------------------------------------------------------------------------
+# Task B-J04: validate-report, validate-habitat-decision, audit-portability
+# ---------------------------------------------------------------------------
+
+
+def _run_validate_report(args: Namespace) -> int:
+    from neuro_symbolic_vln.evaluation.report_validator import validate_report
+
+    result = validate_report(args.report)
+    if result["ok"]:
+        print(f"validate-report: PASS — {result['report_file']}")
+        print(f"  sections found: {', '.join(result['sections'])}")
+        return 0
+    print("validate-report: FAIL", file=sys.stderr)
+    for err in result["mismatches"]:
+        print(f"  VIOLATION: {err}", file=sys.stderr)
+    return 7
+
+
+def _run_validate_habitat_decision(args: Namespace) -> int:
+    from neuro_symbolic_vln.evaluation.report_validator import validate_habitat_decision
+
+    result = validate_habitat_decision(args.report)
+    if result["ok"]:
+        print(
+            f"validate-habitat-decision: PASS — decision '{result['decision']}' "
+            "is valid and backed by evidence"
+        )
+        return 0
+    print("validate-habitat-decision: FAIL", file=sys.stderr)
+    for err in result["mismatches"]:
+        print(f"  VIOLATION: {err}", file=sys.stderr)
+    return 8
+
+
+def _run_audit_portability(args: Namespace) -> int:
+    from neuro_symbolic_vln.evaluation.report_validator import audit_portability
+
+    result = audit_portability(args.src)
+    print(f"audit-portability: {result['files_scanned']} files scanned")
+    if result["ok"]:
+        print("audit-portability: PASS — core modules decoupled from MiniGrid")
+        return 0
+    print("audit-portability: FAIL — violations found", file=sys.stderr)
+    for err in result["violations"]:
+        print(f"  VIOLATION: {err}", file=sys.stderr)
+    return 9

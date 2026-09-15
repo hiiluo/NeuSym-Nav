@@ -17,7 +17,10 @@ import yaml
 from neuro_symbolic_vln.agent_v1r1 import run_v1r1_episode
 from neuro_symbolic_vln.contracts import PlanStatus
 from neuro_symbolic_vln.env.verifier import GoToVerifier
-from neuro_symbolic_vln.evaluation.interventions import InterventionSpec
+from neuro_symbolic_vln.evaluation.interventions import (
+    InterventionSpec,
+    apply_intervention,
+)
 from neuro_symbolic_vln.evaluation.manifests import (
     SCHEMA_VERSION,
     EvaluationSidecar,
@@ -133,32 +136,40 @@ class RunRow:
             "runtime_ms": self.runtime_ms,
             "notes": self.notes,
         }
+        grid_spl_val = (
+            grid_spl(
+                self.success,
+                self.optimal_distance,
+                self.executed_distance,
+            )
+            if self.family == "goto_type_color"
+            else None
+        )
+        sope_val = (
+            sope(
+                self.success,
+                self.optimal_actions,
+                self.attempted_actions,
+            )
+            if self.family == "key_door_goal"
+            else None
+        )
+        efficiency_val = grid_spl_val if self.family == "goto_type_color" else sope_val
+        recovery_succ = bool(self.intervention and self.recoverable and self.success)
         payload.update(
             {
                 "episode_outcome": self.terminal_outcome,
-                "grid_spl": (
-                    grid_spl(
-                        self.success,
-                        self.optimal_distance,
-                        self.executed_distance,
-                    )
-                    if self.family == "goto_type_color"
-                    else None
-                ),
-                "sope": (
-                    sope(
-                        self.success,
-                        self.optimal_actions,
-                        self.attempted_actions,
-                    )
-                    if self.family == "key_door_goal"
-                    else None
-                ),
+                "grid_spl": grid_spl_val,
+                "sope": sope_val,
                 "primitive_actions": self.attempted_actions,
                 "replans": self.replan_count,
-                "recovery_success": bool(
-                    self.intervention and self.recoverable and self.success
-                ),
+                "recovery_success": recovery_succ,
+                "task_success": float(self.success),
+                "plan_validity": 1.0 if self.plan_status == "found" else 0.0,
+                "efficiency": float(efficiency_val)
+                if efficiency_val is not None
+                else 0.0,
+                "recovery_rate": float(recovery_succ),
             }
         )
         return payload
@@ -489,6 +500,7 @@ def _run_belief_row(
         family=manifest.family,
         method=method,
         intervention=intervention,
+        apply_intervention_fn=apply_intervention,
         use_validator=flags["use_validator"],
         use_recovery=flags["use_recovery"],
         evidence_transform=evidence_transform,

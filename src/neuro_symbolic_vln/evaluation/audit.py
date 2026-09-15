@@ -68,6 +68,7 @@ class AuditReport:
 # Agent-path modules that must NEVER import evaluation code.
 AGENT_MODULES = (
     "neuro_symbolic_vln.agent",
+    "neuro_symbolic_vln.agent_v1r1",
     "neuro_symbolic_vln.belief.evidence",
     "neuro_symbolic_vln.belief.state",
     "neuro_symbolic_vln.belief.validator",
@@ -268,7 +269,10 @@ def scan_traces(
     """
     records_scanned = 0
 
-    for trace_file in sorted(trace_dir.glob("*.jsonl")):
+    scan_dir = trace_dir / "traces" if (trace_dir / "traces").is_dir() else trace_dir
+    for trace_file in sorted(scan_dir.rglob("*.jsonl")):
+        if trace_file.name.endswith(".rows.jsonl"):
+            continue
         for line_num, line in enumerate(
             trace_file.read_text().strip().splitlines(), 1
         ):

@@ -1,0 +1,254 @@
+[
+  {
+    "rq_label": "RQ1",
+    "treatment_method": "V1R0",
+    "control_method": "V0R0",
+    "metrics": [
+      "task_success"
+    ],
+    "strata": [
+      {
+        "family": "goto_type_color",
+        "condition": "N1-DROP-15",
+        "metric": "task_success",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "goto_type_color",
+        "condition": "N1-FLIP-10",
+        "metric": "task_success",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "goto_type_color",
+        "condition": "clean",
+        "metric": "task_success",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "N1-DROP-15",
+        "metric": "task_success",
+        "point_estimate": -0.08333333333333333,
+        "ci_lower": -0.16666666666666666,
+        "ci_upper": -0.016666666666666666,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "N1-FLIP-10",
+        "metric": "task_success",
+        "point_estimate": -0.08333333333333333,
+        "ci_lower": -0.21666666666666667,
+        "ci_upper": 0.05,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "clean",
+        "metric": "task_success",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      }
+    ],
+    "aggregate": {
+      "point_estimate": -0.027777777777777776,
+      "ci_lower": -0.05277777777777778,
+      "ci_upper": -0.002777777777777778,
+      "n_episodes": 360,
+      "n_resamples": 10000,
+      "ci_level": 0.95
+    }
+  },
+  {
+    "rq_label": "RQ1",
+    "treatment_method": "V1R0",
+    "control_method": "V0R0",
+    "metrics": [
+      "plan_validity"
+    ],
+    "strata": [
+      {
+        "family": "goto_type_color",
+        "condition": "N1-DROP-15",
+        "metric": "plan_validity",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "goto_type_color",
+        "condition": "N1-FLIP-10",
+        "metric": "plan_validity",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "goto_type_color",
+        "condition": "clean",
+        "metric": "plan_validity",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "N1-DROP-15",
+        "metric": "plan_validity",
+        "point_estimate": 0.016666666666666666,
+        "ci_lower": 0.0,
+        "ci_upper": 0.05,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "N1-FLIP-10",
+        "metric": "plan_validity",
+        "point_estimate": 0.03333333333333333,
+        "ci_lower": -0.08333333333333333,
+        "ci_upper": 0.15,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "clean",
+        "metric": "plan_validity",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      }
+    ],
+    "aggregate": {
+      "point_estimate": 0.008333333333333333,
+      "ci_lower": -0.011111111111111112,
+      "ci_upper": 0.027777777777777776,
+      "n_episodes": 360,
+      "n_resamples": 10000,
+      "ci_level": 0.95
+    }
+  },
+  {
+    "rq_label": "RQ1",
+    "treatment_method": "V1R0",
+    "control_method": "V0R0",
+    "metrics": [
+      "efficiency"
+    ],
+    "strata": [
+      {
+        "family": "goto_type_color",
+        "condition": "N1-DROP-15",
+        "metric": "efficiency",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "goto_type_color",
+        "condition": "N1-FLIP-10",
+        "metric": "efficiency",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "goto_type_color",
+        "condition": "clean",
+        "metric": "efficiency",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "N1-DROP-15",
+        "metric": "efficiency",
+        "point_estimate": -0.04611111111111112,
+        "ci_lower": -0.08705092592592581,
+        "ci_upper": -0.00925925925925926,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "N1-FLIP-10",
+        "metric": "efficiency",
+        "point_estimate": -0.051481481481481475,
+        "ci_lower": -0.12148148148148148,
+        "ci_upper": 0.01944444444444444,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "clean",
+        "metric": "efficiency",
+        "point_estimate": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_episodes": 60,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      }
+    ],
+    "aggregate": {
+      "point_estimate": -0.016265432098765433,
+      "ci_lower": -0.030308641975308644,
+      "ci_upper": -0.0029320987654320994,
+      "n_episodes": 360,
+      "n_resamples": 10000,
+      "ci_level": 0.95
+    }
+  }
+]
