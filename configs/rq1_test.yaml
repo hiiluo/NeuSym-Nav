@@ -5,7 +5,7 @@
 # corruption channels, crossed with belief-only methods V0R0/V1R0.
 run_id: rq1_test
 manifests_dir: data/manifests
-output_dir: runs/rq1_test
+output_dir: runs/final
 splits:
   - test
 matrix:

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from neuro_symbolic_vln.agent import (
     _episode_outcome_for_plan,
@@ -90,9 +90,6 @@ _HEADING_DELTA = {
 _WORLD_KNOWLEDGE_SENSOR = "world-knowledge"
 _CHECKPOINT_PRE_MOVE = "pre-move-forward"
 _CHECKPOINT_POST_TOGGLE = "post-toggle"
-
-if TYPE_CHECKING:
-    from neuro_symbolic_vln.evaluation.interventions import InterventionSpec
 
 
 def _subgoals_for_family(family: str) -> tuple[GroundAtom, ...]:
@@ -540,7 +537,8 @@ def run_v1r1_episode(
     method: str = "V1R1",
     use_validator: bool = True,
     use_recovery: bool = True,
-    intervention: InterventionSpec | None = None,
+    intervention: Any | None = None,
+    apply_intervention_fn: Callable[[Any, Any], None] | None = None,
     evidence_transform: Callable[[tuple[Evidence, ...]], tuple[Evidence, ...]]
     | None = None,
     episode: EpisodeSpec | None = None,
@@ -770,14 +768,15 @@ def run_v1r1_episode(
                         intervention, action, family, toggle_seen, env
                     )
                 ):
-                    # Evaluator interventions are an explicit test hook. Keep
-                    # their import off the normal agent import path so oracle
-                    # modules cannot leak into local execution.
-                    from neuro_symbolic_vln.evaluation.interventions import (
-                        apply_intervention,
-                    )
+                    if apply_intervention_fn is not None:
+                        apply_intervention_fn(env, intervention)
+                    else:
+                        import importlib
 
-                    apply_intervention(env, intervention)
+                        mod = importlib.import_module(
+                            "neuro_symbolic_vln.evaluation.interventions"
+                        )
+                        mod.apply_intervention(env, intervention)
                     intervention_fired = True
                 primitive_name = controller.to_primitive(action)
                 primitive = PrimitiveAction(primitive_name)
@@ -849,7 +848,7 @@ def run_v1r1_episode(
 
 
 def _matches_checkpoint(
-    intervention: InterventionSpec,
+    intervention: Any,
     action: SymbolicAction,
     family: str,
     toggle_seen: bool,

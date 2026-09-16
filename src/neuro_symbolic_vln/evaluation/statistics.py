@@ -102,6 +102,25 @@ class StratumResult:
     bootstrap: BootstrapResult
 
 
+def _extract_metric(row: dict[str, Any], metric_key: str) -> float:
+    if metric_key in row and row[metric_key] is not None:
+        return float(row[metric_key])
+    if metric_key == "task_success":
+        return float(row.get("success", 0.0))
+    if metric_key == "plan_validity":
+        return 1.0 if row.get("plan_status") == "found" else 0.0
+    if metric_key == "efficiency":
+        eff = (
+            row.get("grid_spl")
+            if row.get("family") == "goto_type_color"
+            else row.get("sope")
+        )
+        return float(eff) if eff is not None else 0.0
+    if metric_key == "recovery_rate":
+        return float(row.get("recovery_success", 0.0))
+    return float(row.get(metric_key, 0.0))
+
+
 def stratified_summary(
     treatment_rows: list[dict[str, Any]],
     control_rows: list[dict[str, Any]],
@@ -120,33 +139,33 @@ def stratified_summary(
     metric column. Treatment and control rows are paired by episode_id
     within each stratum.
     """
+
     def _group(
         rows: list[dict[str, Any]],
     ) -> dict[tuple[str, str], dict[str, float]]:
         groups: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
         for row in rows:
             key = (row[family_key], row[condition_key])
-            groups[key][row[episode_key]] = float(row[metric_key])
+            groups[key][row[episode_key]] = _extract_metric(row, metric_key)
         return groups
 
     t_groups = _group(treatment_rows)
     c_groups = _group(control_rows)
 
-    all_strata = sorted(set(t_groups) | set(c_groups))
+    all_strata = sorted(
+        s for s in (set(t_groups) & set(c_groups))
+        if t_groups[s] and c_groups[s] and t_groups[s].keys() == c_groups[s].keys()
+    )
     results: list[StratumResult] = []
 
     for stratum in all_strata:
         family, condition = stratum
-        t_map = t_groups.get(stratum, {})
-        c_map = c_groups.get(stratum, {})
-        if not t_map and not c_map:
-            continue
+        t_map = t_groups[stratum]
+        c_map = c_groups[stratum]
 
         # Derive a deterministic per-stratum seed so strata are independent
         stratum_hash = int(
-            hashlib.sha256(
-                f"{family}:{condition}".encode()
-            ).hexdigest()[:8],
+            hashlib.sha256(f"{family}:{condition}".encode()).hexdigest()[:8],
             16,
         )
         stratum_seed = seed + stratum_hash
@@ -187,13 +206,15 @@ class ValidationReport:
 
     @property
     def ok(self) -> bool:
-        return not any([
-            self.missing_pairs,
-            self.duplicate_pairs,
-            self.hash_mismatches,
-            self.incomplete_traces,
-            self.untyped_outcomes,
-        ])
+        return not any(
+            [
+                self.missing_pairs,
+                self.duplicate_pairs,
+                self.hash_mismatches,
+                self.incomplete_traces,
+                self.untyped_outcomes,
+            ]
+        )
 
 
 def validate_run_pairs(
@@ -212,7 +233,8 @@ def validate_run_pairs(
     report = ValidationReport()
 
     def _check_duplicates(
-        rows: list[dict[str, Any]], label: str,
+        rows: list[dict[str, Any]],
+        label: str,
     ) -> dict[tuple[str, str, str], str]:
         seen: dict[tuple[str, str, str], str] = {}
         for row in rows:
@@ -232,13 +254,9 @@ def validate_run_pairs(
     c_keys = set(c_seen)
 
     for key in sorted(t_keys - c_keys):
-        report.missing_pairs.append(
-            f"treatment only: {key[0]} ({key[1]}/{key[2]})"
-        )
+        report.missing_pairs.append(f"treatment only: {key[0]} ({key[1]}/{key[2]})")
     for key in sorted(c_keys - t_keys):
-        report.missing_pairs.append(
-            f"control only: {key[0]} ({key[1]}/{key[2]})"
-        )
+        report.missing_pairs.append(f"control only: {key[0]} ({key[1]}/{key[2]})")
 
     return report
 
@@ -280,13 +298,11 @@ def validate_run_hashes(
         for h in all_config:
             if h and h != expected_config_hash:
                 report.hash_mismatches.append(
-                    f"config hash mismatch "
-                    f"(expected={expected_config_hash}, found={h})"
+                    f"config hash mismatch (expected={expected_config_hash}, found={h})"
                 )
     elif len(all_config - {""}) > 1:
         report.hash_mismatches.append(
-            f"inconsistent config hashes across runs: "
-            f"{sorted(all_config - {''})}"
+            f"inconsistent config hashes across runs: {sorted(all_config - {''})}"
         )
 
     return report
@@ -314,9 +330,7 @@ def validate_trace_completeness(
     episode_records: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for trace_file in sorted(trace_dir.glob("*.jsonl")):
-        for line_num, line in enumerate(
-            trace_file.read_text().strip().splitlines(), 1
-        ):
+        for line_num, line in enumerate(trace_file.read_text().strip().splitlines(), 1):
             if not line.strip():
                 continue
             try:
@@ -330,8 +344,7 @@ def validate_trace_completeness(
             missing = REQUIRED_TRACE_FIELDS - data.keys()
             if missing:
                 report.incomplete_traces.append(
-                    f"{trace_file.name}:{line_num}: "
-                    f"missing fields {sorted(missing)}"
+                    f"{trace_file.name}:{line_num}: missing fields {sorted(missing)}"
                 )
                 continue
 
@@ -357,9 +370,7 @@ def validate_trace_completeness(
     if expected_episode_ids is not None:
         found = set(episode_records)
         for ep in sorted(expected_episode_ids - found):
-            report.incomplete_traces.append(
-                f"{ep}: no trace records found"
-            )
+            report.incomplete_traces.append(f"{ep}: no trace records found")
 
     return report
 
@@ -406,8 +417,10 @@ def generate_rq1_summary(
     episode_id, family, condition, method, task_success, plan_validity,
     efficiency, config_hash, manifest_hash.
     """
+    rq1_files = sorted(runs_dir.glob("*rq1*.jsonl"))
+    target_files = rq1_files if rq1_files else sorted(runs_dir.glob("*.jsonl"))
     all_rows = []
-    for path in sorted(runs_dir.glob("*.jsonl")):
+    for path in target_files:
         all_rows.extend(_load_rows(path))
 
     treatment_rows = [r for r in all_rows if r.get("method") == treatment_method]
@@ -424,26 +437,35 @@ def generate_rq1_summary(
             seed=seed,
         )
 
-        # Aggregate across all strata
-        t_all = {r["episode_id"]: float(r[metric]) for r in treatment_rows}
-        c_all = {r["episode_id"]: float(r[metric]) for r in control_rows}
+        # Aggregate across all strata: pair by (episode_id, condition)
+        t_all = {
+            f"{r['episode_id']}_{r.get('condition', '')}": _extract_metric(r, metric)
+            for r in treatment_rows
+        }
+        c_all = {
+            f"{r['episode_id']}_{r.get('condition', '')}": _extract_metric(r, metric)
+            for r in control_rows
+        }
         aggregate = None
         if t_all and c_all and t_all.keys() == c_all.keys():
             aggregate = bootstrap_ci(
-                t_all, c_all,
+                t_all,
+                c_all,
                 n_resamples=n_resamples,
                 ci_level=ci_level,
                 seed=seed,
             )
 
-        tables.append(RQSummaryTable(
-            rq_label="RQ1",
-            treatment_method=treatment_method,
-            control_method=control_method,
-            metrics=(metric,),
-            strata=tuple(strata),
-            aggregate=aggregate,
-        ))
+        tables.append(
+            RQSummaryTable(
+                rq_label="RQ1",
+                treatment_method=treatment_method,
+                control_method=control_method,
+                metrics=(metric,),
+                strata=tuple(strata),
+                aggregate=aggregate,
+            )
+        )
 
     return tables
 
@@ -463,8 +485,10 @@ def generate_rq2_summary(
     Same structure as RQ1 but measures whether bounded replanning
     improves outcomes over validation-only.
     """
+    rq2_files = sorted(runs_dir.glob("*rq2*.jsonl"))
+    target_files = rq2_files if rq2_files else sorted(runs_dir.glob("*.jsonl"))
     all_rows = []
-    for path in sorted(runs_dir.glob("*.jsonl")):
+    for path in target_files:
         all_rows.extend(_load_rows(path))
 
     treatment_rows = [r for r in all_rows if r.get("method") == treatment_method]
@@ -481,25 +505,34 @@ def generate_rq2_summary(
             seed=seed,
         )
 
-        t_all = {r["episode_id"]: float(r[metric]) for r in treatment_rows}
-        c_all = {r["episode_id"]: float(r[metric]) for r in control_rows}
+        t_all = {
+            f"{r['episode_id']}_{r.get('condition', '')}": _extract_metric(r, metric)
+            for r in treatment_rows
+        }
+        c_all = {
+            f"{r['episode_id']}_{r.get('condition', '')}": _extract_metric(r, metric)
+            for r in control_rows
+        }
         aggregate = None
         if t_all and c_all and t_all.keys() == c_all.keys():
             aggregate = bootstrap_ci(
-                t_all, c_all,
+                t_all,
+                c_all,
                 n_resamples=n_resamples,
                 ci_level=ci_level,
                 seed=seed,
             )
 
-        tables.append(RQSummaryTable(
-            rq_label="RQ2",
-            treatment_method=treatment_method,
-            control_method=control_method,
-            metrics=(metric,),
-            strata=tuple(strata),
-            aggregate=aggregate,
-        ))
+        tables.append(
+            RQSummaryTable(
+                rq_label="RQ2",
+                treatment_method=treatment_method,
+                control_method=control_method,
+                metrics=(metric,),
+                strata=tuple(strata),
+                aggregate=aggregate,
+            )
+        )
 
     return tables
 
@@ -507,6 +540,45 @@ def generate_rq2_summary(
 # ---------------------------------------------------------------------------
 # 5. Summary table serializers
 # ---------------------------------------------------------------------------
+
+
+def _tables_to_dict(tables: list[RQSummaryTable]) -> list[dict[str, Any]]:
+    payload = []
+    for table in tables:
+        t_dict: dict[str, Any] = {
+            "rq_label": table.rq_label,
+            "treatment_method": table.treatment_method,
+            "control_method": table.control_method,
+            "metrics": list(table.metrics),
+            "strata": [
+                {
+                    "family": s.family,
+                    "condition": s.condition,
+                    "metric": s.metric,
+                    "point_estimate": s.bootstrap.point_estimate,
+                    "ci_lower": s.bootstrap.ci_lower,
+                    "ci_upper": s.bootstrap.ci_upper,
+                    "n_episodes": s.bootstrap.n_episodes,
+                    "n_resamples": s.bootstrap.n_resamples,
+                    "ci_level": s.bootstrap.ci_level,
+                }
+                for s in table.strata
+            ],
+            "aggregate": (
+                {
+                    "point_estimate": table.aggregate.point_estimate,
+                    "ci_lower": table.aggregate.ci_lower,
+                    "ci_upper": table.aggregate.ci_upper,
+                    "n_episodes": table.aggregate.n_episodes,
+                    "n_resamples": table.aggregate.n_resamples,
+                    "ci_level": table.aggregate.ci_level,
+                }
+                if table.aggregate
+                else None
+            ),
+        }
+        payload.append(t_dict)
+    return payload
 
 
 def format_summary_markdown(tables: list[RQSummaryTable]) -> str:
@@ -521,12 +593,10 @@ def format_summary_markdown(tables: list[RQSummaryTable]) -> str:
         )
         lines.append("")
         lines.append(
-            "| Family | Condition | N | Δ (point) | "
-            "95% CI Lower | 95% CI Upper |"
+            "| Family | Condition | N | Δ (point) | 95% CI Lower | 95% CI Upper |"
         )
         lines.append(
-            "|--------|-----------|---|-----------|"
-            "--------------|--------------|"
+            "|--------|-----------|---|-----------|--------------|--------------|"
         )
 
         for s in table.strata:
@@ -554,37 +624,61 @@ def format_summary_csv(tables: list[RQSummaryTable]) -> str:
     """Render RQ summary tables as CSV for machine consumption."""
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        "rq", "treatment", "control", "metric",
-        "family", "condition", "n_episodes",
-        "point_estimate", "ci_lower", "ci_upper",
-        "n_resamples", "ci_level",
-    ])
+    writer.writerow(
+        [
+            "rq",
+            "treatment",
+            "control",
+            "metric",
+            "family",
+            "condition",
+            "n_episodes",
+            "point_estimate",
+            "ci_lower",
+            "ci_upper",
+            "n_resamples",
+            "ci_level",
+        ]
+    )
 
     for table in tables:
         metric = table.metrics[0] if table.metrics else ""
         for s in table.strata:
             b = s.bootstrap
-            writer.writerow([
-                table.rq_label, table.treatment_method,
-                table.control_method, metric,
-                s.family, s.condition, b.n_episodes,
-                f"{b.point_estimate:.6f}",
-                f"{b.ci_lower:.6f}",
-                f"{b.ci_upper:.6f}",
-                b.n_resamples, b.ci_level,
-            ])
+            writer.writerow(
+                [
+                    table.rq_label,
+                    table.treatment_method,
+                    table.control_method,
+                    metric,
+                    s.family,
+                    s.condition,
+                    b.n_episodes,
+                    f"{b.point_estimate:.6f}",
+                    f"{b.ci_lower:.6f}",
+                    f"{b.ci_upper:.6f}",
+                    b.n_resamples,
+                    b.ci_level,
+                ]
+            )
         if table.aggregate:
             a = table.aggregate
-            writer.writerow([
-                table.rq_label, table.treatment_method,
-                table.control_method, metric,
-                "ALL", "ALL", a.n_episodes,
-                f"{a.point_estimate:.6f}",
-                f"{a.ci_lower:.6f}",
-                f"{a.ci_upper:.6f}",
-                a.n_resamples, a.ci_level,
-            ])
+            writer.writerow(
+                [
+                    table.rq_label,
+                    table.treatment_method,
+                    table.control_method,
+                    metric,
+                    "ALL",
+                    "ALL",
+                    a.n_episodes,
+                    f"{a.point_estimate:.6f}",
+                    f"{a.ci_lower:.6f}",
+                    f"{a.ci_upper:.6f}",
+                    a.n_resamples,
+                    a.ci_level,
+                ]
+            )
 
     return output.getvalue()
 
@@ -613,10 +707,16 @@ def write_summary_reports(
         p = output_dir / "rq1_summary.md"
         p.write_text(format_summary_markdown(rq1_tables))
         written["rq1_summary.md"] = p
+        p_json = output_dir / "rq1_summary.json"
+        p_json.write_text(json.dumps(_tables_to_dict(rq1_tables), indent=2) + "\n")
+        written["rq1_summary.json"] = p_json
 
     if rq2_tables:
         p = output_dir / "rq2_summary.md"
         p.write_text(format_summary_markdown(rq2_tables))
         written["rq2_summary.md"] = p
+        p_json = output_dir / "rq2_summary.json"
+        p_json.write_text(json.dumps(_tables_to_dict(rq2_tables), indent=2) + "\n")
+        written["rq2_summary.json"] = p_json
 
     return written

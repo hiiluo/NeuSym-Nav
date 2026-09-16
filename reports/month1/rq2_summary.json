@@ -1,0 +1,122 @@
+[
+  {
+    "rq_label": "RQ2",
+    "treatment_method": "V1R1",
+    "control_method": "V1R0",
+    "metrics": [
+      "task_success"
+    ],
+    "strata": [
+      {
+        "family": "goto_type_color",
+        "condition": "N2-fixed",
+        "metric": "task_success",
+        "point_estimate": 0.75,
+        "ci_lower": 0.6,
+        "ci_upper": 0.875,
+        "n_episodes": 40,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "N2-fixed",
+        "metric": "task_success",
+        "point_estimate": 1.0,
+        "ci_lower": 1.0,
+        "ci_upper": 1.0,
+        "n_episodes": 40,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      }
+    ],
+    "aggregate": {
+      "point_estimate": 0.875,
+      "ci_lower": 0.8,
+      "ci_upper": 0.9375,
+      "n_episodes": 80,
+      "n_resamples": 10000,
+      "ci_level": 0.95
+    }
+  },
+  {
+    "rq_label": "RQ2",
+    "treatment_method": "V1R1",
+    "control_method": "V1R0",
+    "metrics": [
+      "recovery_rate"
+    ],
+    "strata": [
+      {
+        "family": "goto_type_color",
+        "condition": "N2-fixed",
+        "metric": "recovery_rate",
+        "point_estimate": 0.75,
+        "ci_lower": 0.6,
+        "ci_upper": 0.875,
+        "n_episodes": 40,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "N2-fixed",
+        "metric": "recovery_rate",
+        "point_estimate": 1.0,
+        "ci_lower": 1.0,
+        "ci_upper": 1.0,
+        "n_episodes": 40,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      }
+    ],
+    "aggregate": {
+      "point_estimate": 0.875,
+      "ci_lower": 0.8,
+      "ci_upper": 0.9375,
+      "n_episodes": 80,
+      "n_resamples": 10000,
+      "ci_level": 0.95
+    }
+  },
+  {
+    "rq_label": "RQ2",
+    "treatment_method": "V1R1",
+    "control_method": "V1R0",
+    "metrics": [
+      "efficiency"
+    ],
+    "strata": [
+      {
+        "family": "goto_type_color",
+        "condition": "N2-fixed",
+        "metric": "efficiency",
+        "point_estimate": 0.41666666666666663,
+        "ci_lower": 0.3083333333333333,
+        "ci_upper": 0.5333333333333333,
+        "n_episodes": 40,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      },
+      {
+        "family": "key_door_goal",
+        "condition": "N2-fixed",
+        "metric": "efficiency",
+        "point_estimate": 0.45227272727272727,
+        "ci_lower": 0.4411363636363637,
+        "ci_upper": 0.4631818181818182,
+        "n_episodes": 40,
+        "n_resamples": 10000,
+        "ci_level": 0.95
+      }
+    ],
+    "aggregate": {
+      "point_estimate": 0.43446969696969695,
+      "ci_lower": 0.378938446969697,
+      "ci_upper": 0.49185700757575757,
+      "n_episodes": 80,
+      "n_resamples": 10000,
+      "ci_level": 0.95
+    }
+  }
+]

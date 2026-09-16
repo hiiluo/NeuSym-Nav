@@ -1,0 +1,86 @@
+# Month 1 Habitat Migration Decision Record (Gate G5)
+# Governed by docs/task_b_j04_guide.md and report_validator.py rubric.
+
+decision: "Conditional hold"
+candidate_sha: "b35a862b78d838756768de981c717819d83c7b35"
+timestamp: "2026-09-15T19:30:00Z"
+signatories:
+  - member: "Member A"
+    role: "System Infrastructure & Environment Lead"
+  - member: "Member B"
+    role: "Evaluation, Statistics & Analysis Lead"
+
+gates:
+  engineering_gates: "PASS"
+  planning_control_gates: "PASS"
+  local_clean_gates: "PASS"
+  rq1_gates: "HOLD: validation without recovery exhibits conservative drop on multi-stage tasks"
+  rq2_gates: "PASS"
+
+gate_details:
+  engineering_gates:
+    no_tracked_credentials: PASS
+    zero_oracle_leakage: PASS (14 modules, 15 files, 5503 traces scanned with 0 violations)
+    typed_outcomes: PASS
+    action_and_planner_bounds: PASS (0 planner timeouts, p95 < 2s)
+    trace_replay_and_completeness: PASS (5,503 / 5,503 valid traces)
+    fresh_checkout_reproduction: PASS (PR #52 reproduction verified)
+    fake_non_grid_adapter: PASS (tests/env/test_non_grid_adapter_contract.py passing)
+    portability_audit: PASS (31 source files pure, no MiniGrid imports in core)
+  planning_control_gates:
+    b3_clean_success_rate: PASS (100% on goto_type_color, 100% on key_door_goal)
+    believed_state_plan_validity: PASS (100%)
+    oracle_state_plan_validity: PASS (100%)
+  local_clean_gates:
+    v1r1_clean_goto_type_color_sr: PASS (100%, threshold >= 85%)
+    v1r1_clean_key_door_goal_sr: PASS (100%, threshold >= 75%)
+    oracle_plan_validity_found_plans: PASS (100%, threshold >= 95%)
+    invalid_primitive_actions: PASS (0.0%, threshold <= 5%)
+  rq1_gates:
+    status: HOLD
+    empirical_finding: |
+      Under N1 perceptual corruption, V1R0 successfully catches invalid tokens,
+      but because recovery is disabled (R0), invalidating a subgoal causes conservative
+      termination, resulting in a task success delta of -0.0833 (95% CI [-0.1667, -0.0167])
+      on key_door_goal. This exceeds the allowed adverse threshold of -2 pp.
+    rubric_action: |
+      Rubric requires: "Architecture/engineering gates PASS nhưng RQ1 hoặc RQ2 thiếu
+      practical support -> Conditional hold. Báo negative/partial result và tiếp tục
+      diagnosis trong 2D."
+  rq2_gates:
+    v1r1_recovery_rate: PASS (87.50% overall, 100% on key_door_goal; threshold >= 50%)
+    v1r1_over_v1r0_improvement: PASS (+87.50 pp; threshold >= 15 pp)
+    detection_pre_two_invalid_primitives: PASS (100%)
+    median_replans_per_recovered_episode: PASS (1 replan; threshold <= 3)
+    public_action_budget_compliance: PASS (0 episodes exceeded budget)
+
+evidence_links:
+  - "reports/month1/research_report.md"
+  - "reports/month1/rq_summary.md"
+  - "reports/month1/rq_summary.csv"
+  - "reports/month1/rq1_summary.json"
+  - "reports/month1/rq2_summary.json"
+  - "docs/reproduction/b_j04_member_b_evidence.md"
+  - "docs/reproduction/a_j04_deviation_log.md"
+  - "tests/env/test_non_grid_adapter_contract.py"
+  - "configs/analysis.yaml"
+  - "reports/expected_rows.yaml"
+
+unresolved_limitations:
+  - id: "LIM-01"
+    description: "Narrow probe topology (D-004): 2-room corridor layouts create topological bottlenecks where block interventions completely partition the graph."
+    owner: "Member A"
+  - id: "LIM-02"
+    description: "Validation-only conservatism without replanning (RQ1): V1R0 drops task success on key_door_goal because belief invalidation without replanning has no fallback."
+    owner: "Member B"
+  - id: "LIM-03"
+    description: "Frontier bootstrap heuristic (D-005): 360-degree rotation bootstrap currently substitutes for continuous frontier exploration."
+    owner: "Member A"
+  - id: "LIM-04"
+    description: "Interaction coordinate alignment (D-006): Front-cell vs object position semantics require explicit translation in non-grid adapters."
+    owner: "Member A"
+
+next_steps:
+  - "Complete 2D diagnostic cycle for coupled validator-replanner interactions under N1+N2 combined stress."
+  - "Implement continuous frontier exploration algorithm to supersede 360-degree rotation bootstrap."
+  - "Retest coupled V1R1 under multi-room grid topologies before initiating Habitat adapter phase."

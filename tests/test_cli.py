@@ -66,3 +66,42 @@ def test_validate_traces_rejects_private_field_even_when_schema_parses(
     assert _run_validate_traces(Namespace(runs=str(tmp_path), episodes=None)) == 6
     captured = capsys.readouterr()
     assert "Forbidden private field" in captured.err
+
+
+def test_cli_audit_portability(capsys) -> None:
+    from neuro_symbolic_vln.cli import _run_audit_portability
+
+    status = _run_audit_portability(Namespace(src="src/neuro_symbolic_vln"))
+    assert status == 0
+    captured = capsys.readouterr()
+    assert "PASS — core modules decoupled from MiniGrid" in captured.out
+
+
+def test_cli_validate_habitat_decision(tmp_path: Path, capsys) -> None:
+    import yaml
+
+    from neuro_symbolic_vln.cli import _run_validate_habitat_decision
+
+    dec_file = tmp_path / "decision.yaml"
+    dec_file.write_text(
+        yaml.safe_dump(
+            {
+                "decision": "Conditional hold",
+                "candidate_sha": "b35a862b1234567890abcdef1234567890abcdef",
+                "gates": {
+                    "engineering_gates": "PASS",
+                    "planning_control_gates": "PASS",
+                    "local_clean_gates": "PASS",
+                    "rq1_gates": "HOLD",
+                    "rq2_gates": "PASS",
+                },
+                "evidence_links": ["runs/final"],
+                "unresolved_limitations": ["probe topology"],
+            }
+        )
+    )
+
+    status = _run_validate_habitat_decision(Namespace(report=str(dec_file)))
+    assert status == 0
+    captured = capsys.readouterr()
+    assert "PASS — decision 'Conditional hold' is valid" in captured.out
