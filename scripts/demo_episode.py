@@ -15,11 +15,6 @@ from typing import Any
 
 from neuro_symbolic_vln.agent_v1r1 import run_v1r1_episode
 from neuro_symbolic_vln.contracts import EpisodeSpec
-from neuro_symbolic_vln.env.tasks import (
-    make_goto_goal_probe_env,
-    make_locked_door_probe_env,
-)
-from neuro_symbolic_vln.env.verifier import GoToVerifier
 
 
 def render_ascii_grid(env: Any) -> str:
@@ -44,7 +39,9 @@ def render_ascii_grid(env: Any) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run and visualize a MiniGrid2D episode")
+    parser = argparse.ArgumentParser(
+        description="Run and visualize a MiniGrid2D episode"
+    )
     parser.add_argument(
         "--family",
         choices=["key_door_goal", "goto_type_color"],
@@ -66,7 +63,9 @@ def main() -> int:
     args = parser.parse_args()
 
     print(f"\n{'='*55}")
-    print(f" MiniGrid2D Demo: {args.family} | Method: {args.method} | Seed: {args.seed}")
+    print(
+        f" MiniGrid2D Demo: {args.family} | Method: {args.method} | Seed: {args.seed}"
+    )
     print(f"{'='*55}\n")
 
     from neuro_symbolic_vln.agent_v1r1 import _make_env_and_verifier
@@ -79,7 +78,9 @@ def main() -> int:
     print("-" * 30)
     print(render_ascii_grid(env))
     print("-" * 30)
-    print("Legend: wal=Wall | A>=Agent (facing East) | key=Key | doo=Door | goa=Goal | bal=Ball\n")
+    print(
+        "Legend: wal=Wall | A>=Agent | key=Key | doo=Door | goa=Goal | bal=Ball\n"
+    )
 
     episode_spec = EpisodeSpec(
         episode_id=f"demo-{args.family}-seed-{args.seed}",
@@ -107,8 +108,14 @@ def main() -> int:
     print("-" * 55)
     for t in result.traces:
         primitive = t.primitive if t.primitive else "symbolic"
-        success_str = "SUCCESS" if (t.step_result and t.step_result.action_succeeded) else "DONE"
-        print(f"  Step {t.step:2d} | Primitive: {primitive:<12} | Action: {t.action.name:<20} | [{success_str}]")
+        success_str = (
+            "SUCCESS" if (t.step_result and t.step_result.action_succeeded) else "DONE"
+        )
+        act_name = t.action.name
+        print(
+            f"  Step {t.step:2d} | Primitive: {primitive:<10} | "
+            f"Action: {act_name:<18} | [{success_str}]"
+        )
     print("-" * 55)
 
     print("\nFinal MiniGrid Layout:")
@@ -116,13 +123,20 @@ def main() -> int:
     print(render_ascii_grid(env))
     print("-" * 30)
 
-    print(f"\nResult Summary:")
+    outcome = (
+        result.terminal_outcome.value
+        if result.terminal_outcome
+        else "unknown"
+    )
+    status_str = "✅ SUCCESS" if result.task_success else "❌ FAILED"
+
+    print("\nResult Summary:")
     print(f"  - Episode ID:        {result.episode_id}")
     print(f"  - Plan Status:       {result.plan.status.value}")
     print(f"  - Steps Taken:       {result.step_count}")
     print(f"  - Replans Required:  {result.replan_count}")
-    print(f"  - Terminal Outcome:  {result.terminal_outcome.value if result.terminal_outcome else 'unknown'}")
-    print(f"  - Task Success:      {'✅ SUCCESS' if result.task_success else '❌ FAILED'}\n")
+    print(f"  - Terminal Outcome:  {outcome}")
+    print(f"  - Task Success:      {status_str}\n")
 
     return 0 if result.task_success else 1
 
