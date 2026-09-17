@@ -45,7 +45,9 @@ class CustomMapSpec:
 
 class CustomMapEnv(MiniGridEnv):
     def __init__(self, spec: CustomMapSpec) -> None:
-        self.spec = spec
+        # ``MiniGridEnv`` inherits Gym's ``spec: EnvSpec | None`` attribute.
+        # Keep the authored map under a distinct name rather than narrowing it.
+        self.map_spec = spec
         super().__init__(
             mission_space=MissionSpace(mission_func=lambda: "custom navigation"),
             width=spec.width,
@@ -56,7 +58,7 @@ class CustomMapEnv(MiniGridEnv):
     def _gen_grid(self, width: int, height: int) -> None:
         self.grid = Grid(width, height)
         self.grid.wall_rect(0, 0, width, height)
-        for (x, y), (kind, color) in self.spec.cells.items():
+        for (x, y), (kind, color) in self.map_spec.cells.items():
             if kind == "wall":
                 self.put_obj(Wall(), x, y)
             elif kind == "key":
@@ -66,9 +68,9 @@ class CustomMapEnv(MiniGridEnv):
             elif kind == "goal":
                 self.put_obj(Goal(), x, y)
             elif kind == "ball":
-                self.put_obj(Ball(color), x, y)
-        self.agent_pos = self.spec.robot_position
-        self.agent_dir = self.spec.robot_direction
+                self.put_obj(Ball(color), x, y)  # type: ignore[no-untyped-call]
+        self.agent_pos = self.map_spec.robot_position
+        self.agent_dir = self.map_spec.robot_direction
         self.mission = "custom navigation"
 
 
