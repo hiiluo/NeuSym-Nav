@@ -32,6 +32,19 @@ uv run mypy src
 uv run pytest -q
 ```
 
+## Pygame presentation demo
+
+For an interactive, hands-free visual demonstration of the V1R1 pipeline:
+
+```bash
+uv run python scripts/pygame_demo.py
+```
+
+Enter one of the supported instructions and click **Start**. The robot then
+executes automatically while the display replays each perception, symbolic
+planning action, primitive action, and verification step. It deliberately has
+no manual movement controls.
+
 ## Manifest and smoke reproduction
 
 Regenerate the deterministic public manifests and evaluator-private sidecars:
