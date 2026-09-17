@@ -92,7 +92,9 @@ _CHECKPOINT_PRE_MOVE = "pre-move-forward"
 _CHECKPOINT_POST_TOGGLE = "post-toggle"
 
 
-def _subgoals_for_family(family: str) -> tuple[GroundAtom, ...]:
+def _subgoals_for_family(
+    family: str, key_color: str = "red", door_color: str = "red"
+) -> tuple[GroundAtom, ...]:
     """Ordered subgoals per core task family (plan §9.1).
 
     Keydoor decomposes into three checkpoints because the goal cell sits
@@ -103,8 +105,8 @@ def _subgoals_for_family(family: str) -> tuple[GroundAtom, ...]:
         return (GroundAtom("task-satisfied", ()),)
     if family == "key_door_goal":
         return (
-            GroundAtom("holding", ("robot", "red-key")),
-            GroundAtom("door-open", ("red-door",)),
+            GroundAtom("holding", ("robot", f"{key_color}-key")),
+            GroundAtom("door-open", (f"{door_color}-door",)),
             GroundAtom("task-satisfied", ()),
         )
     raise ValueError(f"unknown task family for V1R1: {family}")
@@ -544,6 +546,11 @@ def run_v1r1_episode(
     episode: EpisodeSpec | None = None,
     env: Any | None = None,
     verifier: TaskVerifier | None = None,
+    step_observer: Callable[
+        [str, SymbolicAction | None, PrimitiveAction | None, StepResult | None], None
+    ]
+    | None = None,
+    max_replans: int = 5,
 ) -> V1R1EpisodeResult:
     """Execute one closed-loop episode.
 
@@ -625,6 +632,13 @@ def run_v1r1_episode(
     elif family == "key_door_goal":
         goal_target_entity = "target-goal"
 
+    key_color = "red"
+    door_color = "red"
+    if family == "key_door_goal" and parse_result.goal_program is not None:
+        first, second, _ = parse_result.goal_program.ordered_subgoals
+        key_color = first.arguments[0]
+        door_color = second.arguments[0]
+
     runtime = _V1R1EpisodeRuntime(
         episode,
         family,
@@ -633,7 +647,11 @@ def run_v1r1_episode(
         evidence_transform=evidence_transform,
     )
     runtime.absorb_reset(initial_obs)
-    monitor = ExecutionMonitor()
+    if step_observer is not None:
+        step_observer("Initial perception and belief update", None, None, None)
+    if max_replans < 0:
+        raise ValueError("max_replans must be non-negative")
+    monitor = ExecutionMonitor(max_replans=max_replans)
     controller = MiniGridController()
 
     # Frontier-lite bootstrap: rotate 360° at reset so belief covers every
@@ -650,11 +668,13 @@ def run_v1r1_episode(
             step_res = adapter.step(prim)
             primitive_count_pre_scan += 1
             runtime.absorb_step(prim, step_res)
+            if step_observer is not None:
+                step_observer("360° perception scan", None, prim, step_res)
         return primitive_count_pre_scan
 
     _run_scan()
 
-    subgoals = _subgoals_for_family(family)
+    subgoals = _subgoals_for_family(family, key_color, door_color)
     subgoal_index = 0
     committed_state = runtime.committed_state()
     plan = _empty_plan(committed_state.state_hash)
@@ -746,6 +766,8 @@ def run_v1r1_episode(
                         ),
                     )
                 )
+                if step_observer is not None:
+                    step_observer("Verify task goal", action, None, None)
                 if verification.task_success:
                     return episode_result(
                         terminal_outcome=EpisodeOutcome.SUCCESS,
@@ -802,6 +824,8 @@ def run_v1r1_episode(
                         ),
                     )
                 )
+                if step_observer is not None:
+                    step_observer("Execute planned action", action, primitive, step_res)
                 if step_res.task_success:
                     task_success = True
                 if (
